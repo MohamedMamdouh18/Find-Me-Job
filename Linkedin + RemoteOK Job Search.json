@@ -542,7 +542,7 @@
             },
             {
               "key": "Date|date",
-              "date": "={{ $('Schedule Trigger').item.json['Readable date'] }}"
+              "date": "={{ $('Schedule Trigger').item.json.timestamp }}"
             },
             {
               "key": "Cover Letter|rich_text",
@@ -671,7 +671,7 @@
             },
             {
               "name": "=messages",
-              "value": "={{ [{\"role\":\"system\",\"content\":\"You are an expert job matcher. Today: \" + $('Schedule Trigger').item.json['Readable date'] + \".\\n\\nGiven a resume and job description:\\n1. Extract candidate's total years of professional experience using today's date\\n2. Extract required years from job description\\n3. Compare required vs actual: skills and experience\\n4. Score 0-100 using these STRICT rules:\\n\\nEXPERIENCE GATE (absolute, checked first):\\n- If candidate has 3 or more fewer years than required: score=0, coverLetter=\\\"\\\", stop here\\n- If candidate has 1-2 fewer years than required: small penalty only\\n- Meets or exceeds: no penalty\\n\\nSKILLS SCORING (only if gate passed):\\n- Each required skill present: positive\\n- Each required skill missing: negative\\n- Nice-to-have skills present: small bonus\\n\\n5. If score>50, write a 2-paragraph professional cover letter (no name/address/signature). Otherwise coverLetter=\\\"\\\"\\n\\nRESPOND WITH RAW JSON ONLY. No markdown, no code blocks, no explanation, no newlines inside strings.\\nFormat: {\\\"score\\\":<number>,\\\"coverLetter\\\":\\\"<string>\\\"}\\nIf job description is empty/invalid: {\\\"score\\\":0,\\\"coverLetter\\\":\\\"\\\"}\"},{\"role\":\"user\",\"content\":\"Job Description:\\n\" + $json.description + \"\\n\\nResume:\\n\" + $('Collect CV+HASH').item.json.cv_text}] }}"
+              "value": "={{ [{\"role\":\"system\",\"content\":\"You are an expert job matcher. Today: \" + $('Schedule Trigger').item.json['Readable date'] + \".\\n\\nGiven a resume and job description:\\n1. Extract candidate's total years of professional experience using today's date\\n2. Extract required years from job description\\n3. Compare required vs actual: skills and experience\\n4. Score 0-100 using these STRICT rules:\\n\\nEXPERIENCE GATE (absolute, checked first):\\n- If candidate has 3 or more fewer years than required: score=0, coverLetter=\\\"\\\", stop here\\n- If candidate has 1-2 fewer years than required: small penalty only\\n- Meets or exceeds: no penalty\\n\\nSKILLS SCORING (only if gate passed):\\n- Each required skill present: positive\\n- Each required skill missing: negative\\n- Nice-to-have skills present: small bonus\\n\\n5. If score>50, write a 2-paragraph professional cover letter (no name/address/signature). The cover letter MUST be strictly less than 1900 characters total. Otherwise coverLetter=\\\"\\\"\\n\\nRESPOND WITH RAW JSON ONLY. No markdown, no code blocks, no explanation, no newlines inside strings.\\nFormat: {\\\"score\\\":<number>,\\\"coverLetter\\\":\\\"<string>\\\"}\\nIf job description is empty/invalid: {\\\"score\\\":0,\\\"coverLetter\\\":\\\"\\\"}\"},{\"role\":\"user\",\"content\":\"Job Description:\\n\" + $json.description + \"\\n\\nResume:\\n\" + $('Collect CV+HASH').item.json.cv_text}] }}"
             }
           ]
         },
@@ -1602,7 +1602,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "02267b85-7cd1-4c07-854d-f39a605fcfd1",
+  "versionId": "2e0df829-dc72-4e4d-8f66-afae9a78b668",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "6f07661684dfc4d1e6e6b7510d0c2f6c7ed427caa9513d3f8978a8a16bf5ddf9"
