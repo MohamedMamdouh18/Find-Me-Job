@@ -1,0 +1,26 @@
+Analyze the following CV and extract job search keywords optimized
+for Software Engineer, Backend Engineer, and Full-Stack Engineer
+positions.
+
+## titles
+Based on years of experience, seniority of past roles, and scope
+of responsibilities, extract 3-5 job titles the candidate could
+realistically apply for today. Include current-level and one-step-up
+titles. Use job-board formatting ("Backend Engineer", not "backend eng").
+
+## skills
+Extract 10-20 technical and professional skills explicitly mentioned
+or directly inferable from described projects and experience.
+Do NOT infer skills with no supporting evidence in the CV.
+Prioritize:
+- Programming languages and frameworks
+- Backend technologies (databases, APIs, message queues, cloud)
+- Full-stack tools (frontend frameworks, CI/CD, DevOps)
+- Methodologies (Agile, TDD, microservices)
+Use industry-standard naming (e.g. "PostgreSQL" not "postgres database").
+
+Return ONLY valid JSON with no markdown, no explanation, and no extra text:
+{
+  "titles": ["Job Title 1", "Job Title 2"],
+  "skills": ["skill1", "skill2"]
+}
