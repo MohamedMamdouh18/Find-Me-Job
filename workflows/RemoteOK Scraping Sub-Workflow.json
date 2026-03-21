@@ -1,0 +1,296 @@
+{
+  "name": "RemoteOK Scraping Sub-Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://remoteok.com/api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        352,
+        640
+      ],
+      "id": "edf8adf7-9c8f-42eb-af32-e95695d1aee3",
+      "name": "Fetch RemoteOK Jobs"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst jobs = Array.isArray(items) ? items.slice(1) : [];\nconst keywords = $('Start').first()?.json._firstItem?.keywords;\n\nfunction wordPattern(term) {\n  const escaped = term.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  return new RegExp(`(?:^|[\\\\s,;/()\\\\[\\\\]|•·–—-])${escaped}(?:$|[\\\\s,;/()\\\\[\\\\]|•·–—-])`, 'i');\n}\n\nconst titlePatterns   = keywords.titles.map(t => wordPattern(t));\nconst skillPatterns   = keywords.skills.map(s => wordPattern(s));\n\nfunction cleanDescription(html) {\n  if (!html) return '';\n  return html\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&#\\d+;/g, ' ')\n    .replace(/&\\w+;/g, ' ')\n    .replace(/Â/g, '')\n    .replace(/Please mention the word.*$/s, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst TITLE_BONUS = 10;\nconst SKILL_POINTS = 3;\nconst MIN_SCORE = 6;\n\nconst scored = jobs.map(job => {\n  const title = job.json.position ?? '';\n  const desc = cleanDescription(job.json.description ?? job.json.tags?.join(', ') ?? '');\n  const fullText = `${title} ${desc}`;\n\n  let score = 0;\n  const matched = [];\n\n  if (titlePatterns.some(re => re.test(fullText))) score += TITLE_BONUS;\n\n  for (let i = 0; i < skillPatterns.length; i++) {\n    if (skillPatterns[i].test(fullText)) {\n      score += SKILL_POINTS;\n      matched.push(keywords.skills[i]);\n    }\n  }\n\n  return { job, score, matched };\n});\n\nconst filtered = scored\n  .filter(s => s.score >= MIN_SCORE)\n  .sort((a, b) => b.score - a.score);\n\nreturn filtered.map(({ job, score, matched }) => ({\n  json: {\n    jobid: job.json.id,\n    title: job.json.position,\n    company: job.json.company,\n    location: \"Remote\",\n    applyLink: job.json.url,\n    description: cleanDescription(job.json.description ?? job.json.tags?.join(', ') ?? ''),\n    source: 'remoteok',\n    _score: score,\n    _matched: matched\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        640
+      ],
+      "id": "ad01c904-d8a5-475e-85f8-c4ebcfd127a1",
+      "name": "Fillter Jobs",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "27a3d3cf-2804-48d2-ae3a-81e9c8f94cf7",
+      "name": "Loop Over Items1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        800,
+        640
+      ],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4e86279f-34fa-4b86-990e-a21f3a1172da",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1248,
+        576
+      ],
+      "id": "a4f101ad-2e42-4cf5-bf5e-cd92b55f8415",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "url": "=http://python-api:8001/job/exists",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "jobid",
+              "value": "=remoteok_{{ $json.jobid }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1024,
+        512
+      ],
+      "id": "17e204e1-3c9d-4772-bd71-4914387833a4",
+      "name": "Check if job in DB1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-api:8001/job/pending",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=remoteok_{{ $('Loop Over Items1').item.json.jobid }}"
+            },
+            {
+              "name": "title",
+              "value": "={{ $('Loop Over Items1').item.json.title }}"
+            },
+            {
+              "name": "company",
+              "value": "={{ $('Loop Over Items1').item.json.company }}"
+            },
+            {
+              "name": "location",
+              "value": "={{ $('Loop Over Items1').item.json.location }}"
+            },
+            {
+              "name": "applylink",
+              "value": "={{ $('Loop Over Items1').item.json.applyLink }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $('Loop Over Items1').item.json.description }}"
+            },
+            {
+              "name": "website",
+              "value": "RemoteOK"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1472,
+        720
+      ],
+      "id": "0b752c85-8f69-4dec-b8c5-43c1194ae2d5",
+      "name": "Add Job to DB1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        928,
+        288
+      ],
+      "id": "8e923171-b8fa-4404-bd71-242b01a98811",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "_firstItem",
+              "type": "any"
+            }
+          ]
+        }
+      },
+      "id": "2001d55b-aa57-4bec-9d5a-48832e029004",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        144,
+        640
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Fetch RemoteOK Jobs": {
+      "main": [
+        [
+          {
+            "node": "Fillter Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fillter Jobs": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check if job in DB1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Add Job to DB1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if job in DB1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Job to DB1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Fetch RemoteOK Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "219ae032-e1fe-4549-9246-04c71d46fb23",
+  "meta": {
+    "instanceId": "6f07661684dfc4d1e6e6b7510d0c2f6c7ed427caa9513d3f8978a8a16bf5ddf9"
+  },
+  "id": "BEVslujoGyV7YQ6V",
+  "tags": []
+}

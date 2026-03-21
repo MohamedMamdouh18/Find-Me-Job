@@ -2,7 +2,7 @@
 
 An automated job scraping and AI matching pipeline that runs on a schedule, scrapes jobs from **LinkedIn** and **RemoteOK**, prevents fetching the same job twice, scores each one against your CV using an LLM, generates a cover letter for good matches, saves results to a **Notion database**, and sends you a **Telegram notification** when the workflow finishes - all running locally in Docker.
 
-![n8n Workflow](assets/n8n-workflow.png)
+![n8n Main Workflow](assets/n8n-main-workflow.png)
 
 ---
 
@@ -33,15 +33,19 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 ## Features
 
 - **Dual source scraping** - LinkedIn (with filters) and RemoteOK
+- **Modular sub-workflows** - LinkedIn and RemoteOK scraping run as separate sub-workflows, called by the main workflow
+- **Multiple LinkedIn searches** - define multiple search queries (different keywords, locations, filters) in a single config file and all are executed in one run
 - **Deduplication** - jobs already seen or pending are skipped automatically across runs
 - **AI scoring** - scores each job 0–100 based on your CV, required skills, and years of experience
 - **Smart experience matching** - small experience gaps (1–2 years) don't heavily penalize the score
 - **Cover letter generation** - only generated for jobs scoring above 50, saving tokens
-- **Notion integration** - matched jobs automatically appear in your Notion database with title, score, URL, cover letter, and source
+- **Notion integration** - matched jobs automatically appear in your Notion database with title, company, country, score, URL, cover letter, and source
 - **Telegram notification** - sends you a message when the workflow finishes each run
 - **Configurable search** - all LinkedIn search parameters controlled via a plain text JSON config file, no code changes needed
 - **LLM-powered keyword extraction** - automatically extracts relevant job titles and skills from your CV to filter RemoteOK results
 - **CV change detection** - the workflow hashes your CV on each run and compares it to the stored hash; keywords are only re-extracted when the CV actually changes, saving LLM tokens
+- **Flexible LLM provider** - use any OpenAI-compatible API (Groq, Google AI Studio, OpenRouter, local models, etc.) by setting the URL, key, and model in your `.env`
+- **Auto-import workflows** - workflows are automatically imported into n8n on first container start, no manual import needed
 - **Rate limiting** - built-in delays between LinkedIn requests to avoid blocking
 - **Persistent storage** - SQLite tracks seen and pending jobs across runs, with automatic cleanup of records older than 2 months
 
@@ -50,45 +54,49 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                     n8n Workflow                     │
-│                                                      │
-│  Schedule Trigger                                    │
-│       │                                              │
-│       ├──── LinkedIn Branch                          │
-│       │     ├── Load params/linkedin_keywords.txt    │
-│       │     ├── Build search URL                     │
-│       │     ├── Fetch LinkedIn HTML                  │
-│       │     ├── Extract job links                    │
-│       │     └── Loop (with 5s delay per job)         │
-│       │         ├── Fetch job page                   │
-│       │         └── Parse title/company/desc         │
-│       │                                              │
-│       └──── RemoteOK Branch                          │
-│             ├── Fetch RemoteOK API                   │
-│             └── Filter + clean by keywords           │
-│                                                      │
-│  Merge (wait for both branches to finish)            │
-│       │                                              │
-│  Loop over merged jobs                               │
-│       ├── Check if job exists (seen + pending DB)    │
-│       ├── If new → insert into pending_jobs          │
-│       └── Loop back                                  │
-│                                                      │
-│  Query all pending jobs from DB                      │
-│       │                                              │
-│  Split Out (one by one)                              │
-│       ├── Wait (5s between each)                     │
-│       ├── LLM: Score + Cover Letter                  │
-│       ├── Parse JSON response                        │
-│       ├── Score filter (≥ 50)                        │
-│       │   ├── True  → Create Notion page             │
-│       │   └── False → Skip                           │
-│       └── Mark job as done → move to seen_jobs       │
-│                                                      │
-│  Telegram: Send completion notification              │
-│                                                      │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                   Main n8n Workflow                       │
+│                                                           │
+│  Schedule Trigger                                         │
+│       │                                                   │
+│       ├── Call LinkedIn Sub-Workflow ──────────────────┐   │
+│       │   (loops over all searches in config)         │   │
+│       │                                               │   │
+│       └── Call RemoteOK Sub-Workflow ─────────────┐   │   │
+│                                                   │   │   │
+│  ◄── Collect results from both sub-workflows ─────┘───┘   │
+│       │                                                   │
+│  Query all pending jobs from DB                           │
+│       │                                                   │
+│  Split Out (one by one)                                   │
+│       ├── Wait (5s between each)                          │
+│       ├── LLM: Score + Cover Letter                       │
+│       ├── Parse JSON response                             │
+│       ├── Score filter (≥ 50)                              │
+│       │   ├── True  → Create Notion page                  │
+│       │   └── False → Skip                                │
+│       └── Mark job as done → move to seen_jobs            │
+│                                                           │
+│  Telegram: Send completion notification                   │
+│                                                           │
+└──────────────────────────────────────────────────────────┘
+
+┌─ LinkedIn Sub-Workflow ──────────────────────────────┐
+│  Receives search params from main workflow           │
+│  Build search URL → Fetch HTML → Extract job links   │
+│  Loop (with 5s delay per job)                        │
+│    ├── Fetch job page                                │
+│    ├── Parse title/company/desc                      │
+│    └── Check DB + insert new jobs into pending_jobs  │
+└──────────────────────────────────────────────────────┘
+
+┌─ RemoteOK Sub-Workflow ──────────────────────────────┐
+│  Fetch RemoteOK API → Filter by CV keywords          │
+│  Loop over results                                   │
+│    ├── Check DB for duplicates                       │
+│    └── Insert new jobs into pending_jobs             │
+└──────────────────────────────────────────────────────┘
+
          │                    │
          ▼                    ▼
   Python FastAPI          SQLite DB
@@ -114,19 +122,27 @@ find-me-job/
 ├── .env.example                              # Template for environment variables
 ├── cv.docx                                   # Your CV/resume
 ├── cv.docx.example                           # Placeholder example
-├── Linkedin + RemoteOK Job Search.json       # n8n workflow export (import this)
+├── n8n/
+│   ├── Dockerfile                            # Custom n8n image with auto-import
+│   └── docker-entrypoint.sh                  # Imports workflows on first start
+├── workflows/
+│   ├── Scraping Main Workflow.json           # Main orchestration workflow
+│   ├── LinkedIn Scraping Sub-Workflow.json   # LinkedIn scraping sub-workflow
+│   └── RemoteOK Scraping Sub-Workflow.json   # RemoteOK scraping sub-workflow
 ├── assets/
-│   ├── n8n-workflow.png                      # n8n workflow screenshot
+│   ├── n8n-main-workflow.png                 # Main workflow screenshot
+│   ├── linkedin-scraping-subworkflow.png     # LinkedIn sub-workflow screenshot
+│   ├── remoteok-scraping-subworkflow.png     # RemoteOK sub-workflow screenshot
 │   ├── notion-database.png                   # Notion database screenshot
 │   ├── n8n-notion-account-setup.png          # n8n Notion credential setup
 │   └── telegram-bot.png                      # Telegram notification screenshot
 ├── params/
-│   ├── linkedin_keywords.txt                 # LinkedIn search config (JSON inside .txt)
+│   ├── linkedin_searches.txt                 # LinkedIn search config (JSON with multiple searches)
 │   └── llm_keywords_extract.txt              # LLM prompt for CV keyword extraction
 ├── python-api/
 │   ├── main.py                               # FastAPI sidecar server
 │   └── requirements.txt
-└── data/                         
+└── data/
     ├── db/
     │   └── jobs.db                           # SQLite database
     └── n8n/                                  # n8n internal data and workflow state
@@ -139,7 +155,7 @@ find-me-job/
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
-- A [Groq](https://console.groq.com) account - free, no credit card required (or any other LLM provider, see [Choosing an LLM Provider](#choosing-an-llm-provider))
+- An LLM API key from any OpenAI-compatible provider (e.g., [Groq](https://console.groq.com), [Google AI Studio](https://aistudio.google.com), [OpenRouter](https://openrouter.ai)) - see [Choosing an LLM Provider](#choosing-an-llm-provider)
 - A [Notion](https://notion.so) account - free
 - A [Telegram Bot](https://t.me/BotFather) - optional, for run notifications
 - Your CV as a `.docx` file
@@ -169,15 +185,17 @@ cp /path/to/your-cv.docx cv.docx
 
 The Python API reads this file and extracts the text to pass to the LLM for scoring.
 
-### 4. Configure your LinkedIn search
+### 4. Configure your LinkedIn searches
 
-Edit `params/linkedin_keywords.txt` with your desired search parameters. See [LinkedIn Search Config](#linkedin-search-config) for the full reference.
+Edit `params/linkedin_searches.txt` with your desired search parameters. You can define multiple searches to run in a single workflow execution. See [LinkedIn Search Config](#linkedin-search-config) for the full reference.
 
 ### 5. Start the containers
 
 ```bash
 docker compose up -d
 ```
+
+On first start, the custom n8n image automatically imports all workflows from the `workflows/` directory - no manual import needed.
 
 ### 6. Initialize the database
 
@@ -187,13 +205,12 @@ Run this once to create the SQLite tables:
 curl -X POST http://localhost:8001/db/init
 ```
 
-### 7. Import the n8n workflow
+### 7. Configure n8n credentials
 
 1. Open n8n at [http://localhost:5678](http://localhost:5678)
-2. Go to **Workflows** → **Import from file**
-3. Select `Linkedin + RemoteOK Job Search.json`
-4. Update the Notion credentials and database ID in the Notion node (can also be accessed via `$env.NOTION_TOKEN` and `$env.NOTION_DB_URL`)
-5. The Groq API key is read automatically from your `.env` via `$env.GROQ_API_KEY`
+2. The workflows are already imported and ready to use
+3. Update the Notion credentials and database ID in the Notion node (can also be accessed via `$env.NOTION_TOKEN` and `$env.NOTION_DB_URL`)
+4. The LLM API key, URL, and model are read automatically from your `.env`
 
 ### 8. Set up Notion
 
@@ -206,9 +223,24 @@ Follow the [Notion Setup](#notion-setup) section, then activate the workflow and
 ### Environment Variables (`.env`)
 
 ```env
+# ── n8n ─────────────────────────────────────────────
+N8N_HOST=localhost
+N8N_PORT=5678
+N8N_PROTOCOL=http
+WEBHOOK_URL=http://localhost:5678
+DB_TYPE=sqlite
+DB_SQLITE_DATABASE=/data/db/n8n.db
+N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+N8N_IMPORT_WORKFLOWS_FROM=/workflows
+GENERIC_TIMEZONE=Africa/Cairo
+
 # ── LLM ──────────────────────────────────────────────
-# Groq API key - get free at https://console.groq.com
-GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
+# API key for your chosen LLM provider
+LLM_API_KEY=your_api_key_here
+# Must be an OpenAI-compatible chat completions endpoint
+LLM_URL=https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+# Model name supported by your chosen provider
+LLM_MODEL=gemini-2.5-flash
 
 # ── Notion ───────────────────────────────────────────
 # Get from https://www.notion.so/my-integrations
@@ -221,37 +253,49 @@ NOTION_DB_URL=https://www.notion.so/xxxxxxxxxxxx?v=xxxxxxxxxxxxxxxxxxxx
 TELEGRAM_ID=123456789
 # Bot token from @BotFather
 TELEGRAM_BOT_TOKEN=xxxxxxxxx:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-# ── General ──────────────────────────────────────────
-# Your local timezone for the cron scheduler
-TIMEZONE=Africa/Cairo
 ```
 
 ### LinkedIn Search Config
 
-Edit `params/linkedin_keywords.txt`:
+Edit `params/linkedin_searches.txt`. The file supports **multiple searches** in a single config - the workflow loops over all entries in the `searches` array:
 
 ```json
 {
-  "Keyword": "Software Engineer",
-  "Location": "Cairo, Egypt",
-  "Experience Level": "Entry level, Associate",
-  "Remote": "Remote, Hybrid, On-Site",
-  "Job Type": "Full-time",
-  "Easy Apply": "true",
-  "Last Posted": "r604800",
-
   "_meta": {
-    "Easy Apply": "true to enable, empty to disable",
+    "Easy Apply": "true to enable, empty string to disable",
     "Remote": "Remote | Hybrid | On-Site (comma separated)",
     "Experience Level": "Internship | Entry level | Associate | Mid-Senior level | Director | Executive (comma separated)",
-    "Last Posted": "r86400 (past 24 hours), r604800 (past week), r2592000 (past month)",
-    "Keyword, Location and Last Posted": "Single value"
-  }
+    "Job Type": "Full-time | Part-time | Contract | Temporary | Internship (comma separated)",
+    "Last Posted": "r86400 = 24h | r604800 = 1 week | r2592000 = 1 month",
+    "Keyword": "Single value only",
+    "Location": "Single value only"
+  },
+  "searches": [
+    {
+      "Keyword": "Software Engineer",
+      "Location": "Cairo, Egypt",
+      "Experience Level": "Entry level, Associate",
+      "Remote": "Remote, Hybrid, On-Site",
+      "Job Type": "Full-time",
+      "Last Posted": "r604800",
+      "Easy Apply": ""
+    },
+    {
+      "Keyword": "Software Engineer",
+      "Location": "Germany",
+      "Experience Level": "Entry level, Associate",
+      "Remote": "Remote, Hybrid, On-Site",
+      "Job Type": "Full-time",
+      "Last Posted": "r604800",
+      "Easy Apply": "true"
+    }
+  ]
 }
 ```
 
 > The `_meta` block is a reference guide for valid values - it is not used by the workflow.
+
+Add as many search objects to the `searches` array as you need - each one runs as a separate LinkedIn query within the same workflow execution.
 
 **Field reference:**
 
@@ -295,6 +339,8 @@ Create a new full-page database in Notion with these exact properties:
 | Property Name | Type |
 |---------------|------|
 | `Title` | Title |
+| `Company` | Text |
+| `Country` | Text |
 | `Score` | Number |
 | `URL` | URL |
 | `Cover Letter` | Text |
@@ -319,7 +365,7 @@ In n8n, go to **Settings** → **Credentials** → **Add Credential** → **Noti
 
 ![n8n Notion Credential Setup](assets/n8n-notion-account-setup.png)
 
-Repeat for Groq (`{{ $env.GROQ_API_KEY }}`) and Telegram (`{{ $env.TELEGRAM_BOT_TOKEN }}`).
+For Telegram, add a Telegram credential with `{{ $env.TELEGRAM_BOT_TOKEN }}`.
 
 ---
 
@@ -354,15 +400,24 @@ The cover letter is a 2-paragraph professional body - no name, address, or signa
 
 ## Choosing an LLM Provider
 
-The workflow uses **Groq** by default because it offers the best free tier for this use case, but you can swap it for any provider by updating the HTTP Request node in n8n.
+The workflow works with **any OpenAI-compatible API**. Configure your provider by setting three environment variables in your `.env`:
 
-**To switch providers**, update these fields in the LLM HTTP Request node:
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `LLM_API_KEY` | Your API key | `gsk_xxxx`, `AIzaSy...`, `sk-...` |
+| `LLM_URL` | Chat completions endpoint | See examples below |
+| `LLM_MODEL` | Model identifier | See examples below |
 
-| Field | Groq | Google AI Studio |
-|-------|------|-----------------|
-| URL | `https://api.groq.com/openai/v1/chat/completions` | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` |
-| Auth Header | `Bearer $env.GROQ_API_KEY` | `Bearer YOUR_GOOGLE_KEY` |
-| Model | `llama-3.3-70b-versatile` | `gemini-2.5-flash` |
+**Provider examples:**
+
+| Provider | `LLM_URL` | `LLM_MODEL` | Free Tier |
+|----------|-----------|-------------|-----------|
+| Groq | `https://api.groq.com/openai/v1/chat/completions` | `llama-3.3-70b-versatile` | Yes |
+| Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` | `gemini-2.5-flash` | Yes |
+| OpenRouter | `https://openrouter.ai/api/v1/chat/completions` | `meta-llama/llama-3.3-70b` | Some models |
+| OpenAI | `https://api.openai.com/v1/chat/completions` | `gpt-4o` | No |
+| Anthropic (via proxy) | Any OpenAI-compatible proxy URL | `claude-sonnet-4-20250514` | No |
+| Local (Ollama) | `http://host.docker.internal:11434/v1/chat/completions` | `llama3` | N/A |
 
 > **For the best scoring and cover letter quality**, consider using **Claude Sonnet** or **GPT-4o** on the paid tier. The difference in cover letter coherence and scoring nuance is significant compared to free-tier models.
 
@@ -456,7 +511,7 @@ The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From
 | Output (score + cover letter) | ~400–600 |
 | **Total per job** | **~1,700–2,700** |
 
-At ~2,200 tokens average, the 100K TPD limit supports roughly **45 jobs per day**. If you regularly exceed this, switch to `meta-llama/llama-4-scout-17b-16e-instruct` which has a 500K TPD limit on the same free Groq tier.
+At ~2,200 tokens average, the 100K TPD limit supports roughly **45 jobs per day**. If you regularly exceed this, switch to `meta-llama/llama-4-scout-17b-16e-instruct` which has a 500K TPD limit on the same free Groq tier, or switch to a different provider entirely via the `LLM_URL` and `LLM_MODEL` environment variables.
 
 ---
 
@@ -464,14 +519,19 @@ At ~2,200 tokens average, the 100K TPD limit supports roughly **45 jobs per day*
 
 | Service | Image | Port | Purpose |
 |---------|-------|------|---------|
-| `n8n` | `n8nio/n8n:2.11.4` | `5678` | Workflow automation engine |
+| `n8n` | Custom (built from `n8n/Dockerfile` based on `n8nio/n8n:2.11.4`) | `5678` | Workflow automation engine with auto-import |
 | `find-me-job-python-api` | `python:3.11-slim` | `8001` | FastAPI sidecar for DB, CV, and params |
+
+The n8n service uses a custom Docker image that automatically imports workflows from the `workflows/` directory on first start. Subsequent starts skip the import to preserve any manual changes made within n8n.
 
 ### Useful commands
 
 ```bash
-# Start all services
+# Start all services (builds n8n image on first run)
 docker compose up -d
+
+# Rebuild n8n image after changes to n8n/ directory
+docker compose up -d --build
 
 # View all logs live
 docker compose logs -f
@@ -487,6 +547,9 @@ docker compose down
 
 # Stop and wipe all data (WARNING: deletes database and n8n workflows)
 docker compose down -v
+
+# Force re-import of workflows on next start
+docker exec n8n rm /home/node/.n8n/.imported && docker restart n8n
 ```
 
 ---
@@ -513,21 +576,39 @@ Jobs scoring below 50 are intentionally skipped. Lower the threshold in the Scor
 
 **LinkedIn returning empty results**
 - LinkedIn may temporarily block scraping if too many requests are made. The workflow includes built-in delays, but if you see empty results, wait a few hours before retrying.
-- Verify your search parameters in `params/linkedin_keywords.txt` return results when searched manually on LinkedIn.
+- Verify your search parameters in `params/linkedin_searches.txt` return results when searched manually on LinkedIn.
+
+**Workflows not appearing in n8n**
+- Workflows are auto-imported only on the first container start. If you need to re-import, delete the marker file and restart:
+  ```bash
+  docker exec n8n rm /home/node/.n8n/.imported && docker restart n8n
+  ```
 
 ---
 
 ## Screenshots
 
-### n8n Workflow
+### Main Workflow
 
-The full automation pipeline in n8n - from scraping to scoring to Notion:
+The main orchestration workflow - calls both scraping sub-workflows, then scores and processes results:
 
-![n8n Workflow](assets/n8n-workflow.png)
+![Main Workflow](assets/n8n-main-workflow.png)
+
+### LinkedIn Scraping Sub-Workflow
+
+Handles LinkedIn search URL construction, HTML fetching, and job parsing:
+
+![LinkedIn Sub-Workflow](assets/linkedin-scraping-subworkflow.png)
+
+### RemoteOK Scraping Sub-Workflow
+
+Fetches from the RemoteOK API, filters by CV keywords, and stores new jobs:
+
+![RemoteOK Sub-Workflow](assets/remoteok-scraping-subworkflow.png)
 
 ### Notion Database
 
-Matched jobs with scores and cover letters, ready to review:
+Matched jobs with scores, company, country, and cover letters, ready to review:
 
 ![Notion Database](assets/notion-database.png)
 

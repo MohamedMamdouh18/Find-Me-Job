@@ -1,0 +1,541 @@
+{
+  "name": "LinkedIn Scraping Sub-Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "id": "ce8717fb-641d-4154-8f6f-773254aba338",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "position": [
+        1440,
+        992
+      ],
+      "webhookId": "c9cb4878-ae4d-4b8e-bd37-5395011f7761",
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.param;\nconst parsed = JSON.parse(raw);\nconst searches = parsed.searches;\n\nfunction buildUrl(params) {\n  let url = \"https://www.linkedin.com/jobs/search/?\";\n\n  const keyword = params.Keyword;\n  const location = params.Location;\n  const experienceLevel = params['Experience Level'];\n  const remote = params.Remote;\n  const jobType = params['Job Type'];\n  const easyApply = params['Easy Apply'];\n  const lastPosted = params['Last Posted'];\n\n  if (lastPosted != \"\") {\n    url += `f_TPR=${lastPosted}`;\n  }\n  if (keyword != \"\") {\n    url += `&keywords=${encodeURIComponent(keyword)}`;\n  }\n  if (location != \"\") {\n    url += `&location=${encodeURIComponent(location)}`;\n  }\n  if (experienceLevel !== \"\") {\n    const transformedExperiences = experienceLevel\n      .split(\",\")\n      .map((exp) => {\n        switch (exp.trim()) {\n          case \"Internship\": return \"1\";\n          case \"Entry level\": return \"2\";\n          case \"Associate\": return \"3\";\n          case \"Mid-Senior level\": return \"4\";\n          case \"Director\": return \"5\";\n          case \"Executive\": return \"6\";\n          default: return \"\";\n        }\n      })\n      .filter(Boolean);\n    url += `&f_E=${transformedExperiences.join(\",\")}`;\n  }\n  if (remote.length != \"\") {\n    const transformedRemote = remote\n      .split(\",\")\n      .map((e) => {\n        switch (e.trim()) {\n          case \"Remote\": return \"2\";\n          case \"Hybrid\": return \"3\";\n          case \"On-Site\": return \"1\";\n          default: return \"\";\n        }\n      })\n      .filter(Boolean);\n    url += `&f_WT=${transformedRemote.join(\",\")}`;\n  }\n  if (jobType != \"\") {\n    const transformedJobType = jobType.split(\",\").map((type) => type.trim().charAt(0).toUpperCase());\n    url += `&f_JT=${transformedJobType.join(\",\")}`;\n  }\n  if (easyApply != \"\") {\n    url += \"&f_EA=true\";\n  }\n\n  return url;\n}\n\nreturn searches.map(params => ({\n  json: {\n    url: buildUrl(params)\n  }\n}));\n\n"
+      },
+      "id": "7d07b3ac-d93e-4e0d-bad3-11269f0f2438",
+      "name": "Create search URL",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -352,
+        1040
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {}
+      },
+      "id": "49170e9f-54b0-4a66-9b7e-dbd065d43166",
+      "name": "Fetch Jobs from Linkedin",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -128,
+        1040
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Loop Over Items').item.json.url }}",
+        "options": {}
+      },
+      "id": "7c9263b5-81e8-4665-932c-981ffd5962da",
+      "name": "Fetch Job Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1664,
+        992
+      ],
+      "executeOnce": false,
+      "retryOnFail": true,
+      "typeVersion": 4.2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "title",
+              "cssSelector": "div h1"
+            },
+            {
+              "key": "company",
+              "cssSelector": "div span a"
+            },
+            {
+              "key": "location",
+              "cssSelector": "div span[class*='topcard__flavor topcard__flavor--bullet']"
+            },
+            {
+              "key": "description",
+              "cssSelector": "div.description__text.description__text--rich"
+            },
+            {
+              "key": "jobid",
+              "cssSelector": "a[data-item-type='semaphore']",
+              "returnValue": "attribute",
+              "attribute": "data-semaphore-content-urn"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8e8bb302-7e80-4dd9-87bc-39e1c12cfe1e",
+      "name": "Parse Job Attributes",
+      "type": "n8n-nodes-base.html",
+      "position": [
+        1888,
+        992
+      ],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "784ead57-9d83-4e08-b83c-23fa165bf045",
+              "name": "description",
+              "type": "string",
+              "value": "={{ $json.description.replaceAll(/\\s+/g, \" \") }}"
+            },
+            {
+              "id": "fd3c9d2c-5ff9-46a7-b70a-f990fbc7da9d",
+              "name": "jobid",
+              "type": "string",
+              "value": "={{ $json.jobid.split(\":\").last() }}"
+            },
+            {
+              "id": "27a20cd2-ab0d-42b7-9cee-ea64e0e26ea3",
+              "name": "applyLink",
+              "type": "string",
+              "value": "={{ \"https://www.linkedin.com/jobs/view/\"+ $json.jobid.split(\":\").last() }} "
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "3e04bf83-698a-4031-812b-c0e56c55a8ef",
+      "name": "Modify Job Attributes",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        2112,
+        992
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "links",
+              "cssSelector": "ul.jobs-search__results-list li a.base-card__full-link",
+              "returnValue": "attribute",
+              "attribute": "href",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4216d4a9-2474-422c-af77-1a028b7cead5",
+      "name": "Extract Job Links",
+      "type": "n8n-nodes-base.html",
+      "position": [
+        96,
+        1040
+      ],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "url": "http://python-api:8001/param/linkedin_searches",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -576,
+        1040
+      ],
+      "id": "93f3f44e-ada2-4d71-8fbc-34c45814479d",
+      "name": "Read Keywords Prompt1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "253e5668-2d08-49e8-8b58-30da063167e5",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        768,
+        1040
+      ],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4e86279f-34fa-4b86-990e-a21f3a1172da",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1216,
+        992
+      ],
+      "id": "1857419a-270a-4253-90bd-47146e887fc4",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-api:8001/job/pending",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=linkedin_{{ $('Modify Job Attributes').item.json.jobid }}"
+            },
+            {
+              "name": "title",
+              "value": "={{ $('Modify Job Attributes').item.json.title }}"
+            },
+            {
+              "name": "company",
+              "value": "={{ $('Modify Job Attributes').item.json.company }}"
+            },
+            {
+              "name": "location",
+              "value": "={{ $('Modify Job Attributes').item.json.location }}"
+            },
+            {
+              "name": "applylink",
+              "value": "={{ $('Modify Job Attributes').item.json.applyLink }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $('Modify Job Attributes').item.json.description }}"
+            },
+            {
+              "name": "website",
+              "value": "LinkedIn"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2336,
+        1104
+      ],
+      "id": "9a880cad-ece0-4a1e-a158-b25f2fbf57fa",
+      "name": "Add Job to DB2"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  const raw = item.json.links;\n  const url = Array.isArray(raw) ? raw[0] : String(raw);\n  const jobId = url.match(/(\\d+)\\?/)?.[1] || url.match(/(\\d+)$/)?.[1];\n  \n  return {\n    json: {\n      url: url.split('?')[0],\n      jobid: `linkedin_${jobId}`\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        1040
+      ],
+      "id": "b1b9ab58-2174-4b76-82ec-5790a19d6c86",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "links",
+        "options": {}
+      },
+      "id": "50b152b4-e17a-4fbb-92a2-ee35285fec60",
+      "name": "Split Out",
+      "type": "n8n-nodes-base.splitOut",
+      "position": [
+        320,
+        1040
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "url": "http://python-api:8001/job/exists",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "jobid",
+              "value": "={{ $json.jobid }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1024,
+        912
+      ],
+      "id": "2bdcc301-91ee-417c-bf0a-1425bb4d5493",
+      "name": "Check if job in DB"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        880,
+        784
+      ],
+      "id": "709d861e-a9ff-4df0-afce-432e464c2c50",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "af4c978e-a5a9-4a43-a3d8-43d31590864a",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        -784,
+        1040
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Fetch Job Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Job Page": {
+      "main": [
+        [
+          {
+            "node": "Parse Job Attributes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create search URL": {
+      "main": [
+        [
+          {
+            "node": "Fetch Jobs from Linkedin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Job Links": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Job Attributes": {
+      "main": [
+        [
+          {
+            "node": "Modify Job Attributes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modify Job Attributes": {
+      "main": [
+        [
+          {
+            "node": "Add Job to DB2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Jobs from Linkedin": {
+      "main": [
+        [
+          {
+            "node": "Extract Job Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Keywords Prompt1": {
+      "main": [
+        [
+          {
+            "node": "Create search URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check if job in DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Job to DB2": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if job in DB": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Read Keywords Prompt1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "2546226d-09e9-4846-a203-fd2576bfefaf",
+  "meta": {
+    "instanceId": "6f07661684dfc4d1e6e6b7510d0c2f6c7ed427caa9513d3f8978a8a16bf5ddf9"
+  },
+  "id": "MYj8pFQQPJjRtGbA",
+  "tags": []
+}

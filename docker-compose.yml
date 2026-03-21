@@ -1,38 +1,24 @@
 services:
   n8n:
-    image: n8nio/n8n:2.11.4
+    build:
+      context: ./n8n
+      dockerfile: Dockerfile
     container_name: n8n
-    restart: unless-stopped
+    restart: on-failure
     ports:
       - "5678:5678"
-    environment:
-      - N8N_HOST=localhost
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://localhost:5678
-
-      - DB_TYPE=sqlite
-      - DB_SQLITE_DATABASE=/data/db/n8n.db
-
-      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
-
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - NOTION_TOKEN=${NOTION_TOKEN}
-      - NOTION_DB_URL=${NOTION_DB_URL}
-      - TELEGRAM_ID=${TELEGRAM_ID}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - GENERIC_TIMEZONE=${TIMEZONE}
+    env_file: .env
     volumes:
       - ./data/n8n:/home/node/.n8n
       - ./data/db:/data/db
+      - ./workflows:/workflows
     depends_on:
       - python-api
 
   python-api:
     image: python:3.11-slim
     container_name: find-me-job-python-api
-    restart: unless-stopped
+    restart: on-failure
     working_dir: /app
     command: >
       sh -c "pip install -r requirements.txt -q &&
