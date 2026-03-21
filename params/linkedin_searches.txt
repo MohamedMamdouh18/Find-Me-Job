@@ -11,7 +11,7 @@
   "searches": [
     {
       "Keyword": "Software Engineer",
-      "Location": "Cairo, Egypt",
+      "Location": "Egypt",
       "Experience Level": "Entry level, Associate",
       "Remote": "Remote, Hybrid, On-Site",
       "Job Type": "Full-time",

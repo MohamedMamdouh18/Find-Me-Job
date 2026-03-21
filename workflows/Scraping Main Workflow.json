@@ -18,7 +18,7 @@
                 "operation": "gte"
               },
               "leftValue": "={{ $('Parse AI Response').item.json.score }}",
-              "rightValue": 50
+              "rightValue": "={{ $env.FILTERING_SCORE }}"
             }
           ],
           "combinator": "and"
@@ -158,60 +158,6 @@
       ],
       "id": "53af36b7-6c4d-48ae-8de4-ea3e5718c7be",
       "name": "If CV Changed ?"
-    },
-    {
-      "parameters": {
-        "jsCode": "const cvText = $('Collect CV+HASH').first().json.cv_text;\nconst promptTemplate = $('Read Keywords Prompt').first().json.param;\n\nconst prompt = `${promptTemplate}\n\nCV:\n${cvText}`;\n\nreturn [{ json: { prompt } }];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -2112,
-        608
-      ],
-      "id": "021e61e8-666d-4479-8b4f-ac863547c5b7",
-      "name": "Build Groq Prompt"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.groq.com/openai/v1/chat/completions",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $env[\"GROQ_API_KEY\"] }}"
-            }
-          ]
-        },
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "llama-3.3-70b-versatile"
-            },
-            {
-              "name": "temperature",
-              "value": "={{ 0 }}"
-            },
-            {
-              "name": "=messages",
-              "value": "={{ [{\"role\":\"system\",\"content\":\"You are a technical recruiter with expertise in software engineering hiring. Always respond with valid JSON only.\"},{\"role\":\"user\",\"content\":$('Build Groq Prompt').first().json.prompt}] }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        -1888,
-        608
-      ],
-      "id": "cbf14e42-4a4c-484c-a38e-d5ad526f0468",
-      "name": "Generate Keywords with Groq"
     },
     {
       "parameters": {
@@ -570,7 +516,7 @@
             },
             {
               "name": "=messages",
-              "value": "={{ [{\"role\":\"system\",\"content\":\"You are an expert job matcher. Today: \" + $('Schedule Trigger').item.json['Readable date'] + \".\\n\\nGiven a resume and job description:\\n1. Extract candidate's total years of professional experience using today's date\\n2. Extract required years from job description\\n3. Compare required vs actual: skills and experience\\n4. Score 0-100 using these STRICT rules:\\n\\nEXPERIENCE GATE (absolute, checked first):\\n- If candidate has 3 or more fewer years than required: score=0, coverLetter=\\\"\\\", stop here\\n- If candidate has 1-2 fewer years than required: small penalty only\\n- Meets or exceeds: no penalty\\n\\nSKILLS SCORING (only if gate passed):\\n- Each required skill present: positive\\n- Each required skill missing: negative\\n- Nice-to-have skills present: small bonus\\n\\n5. If score>50, write a 2-paragraph professional cover letter (no name/address/signature). The cover letter MUST be strictly less than 1900 characters total. Otherwise coverLetter=\\\"\\\"\\n\\nRESPOND WITH RAW JSON ONLY. No markdown, no code blocks, no explanation, no newlines inside strings.\\nFormat: {\\\"score\\\":<number>,\\\"coverLetter\\\":\\\"<string>\\\"}\\nIf job description is empty/invalid: {\\\"score\\\":0,\\\"coverLetter\\\":\\\"\\\"}\"},{\"role\":\"user\",\"content\":\"Job Description:\\n\" + $json.description + \"\\n\\nResume:\\n\" + $('Collect CV+HASH').item.json.cv_text}] }}"
+              "value": "={{ [{\"role\":\"system\",\"content\":\"You are an expert job matcher. Today: \" + $('Schedule Trigger').item.json['Readable date'] + \".\\n\\nGiven a resume and job description:\\n1. Extract candidate's total years of professional experience using today's date\\n2. Extract required years from job description\\n3. Compare required vs actual: skills and experience\\n4. Score 0-100 using these STRICT rules:\\n\\nEXPERIENCE GATE (absolute, checked first):\\n- If candidate has 3 or more fewer years than required: score=0, coverLetter=\\\"\\\", stop here\\n- If candidate has 1-2 fewer years than required: small penalty only\\n- Meets or exceeds: no penalty\\n\\nSKILLS SCORING (only if gate passed):\\n- Each required skill present: positive\\n- Each required skill missing: negative\\n- Nice-to-have skills present: small bonus\\n\\n5. If score>\" + $env.FILTERING_SCORE + \", write a 2-paragraph professional cover letter (no name/address/signature). The cover letter MUST be strictly less than 1900 characters total. Otherwise coverLetter=\\\"\\\"\\n\\nRESPOND WITH RAW JSON ONLY. No markdown, no code blocks, no explanation, no newlines inside strings.\\nFormat: {\\\"score\\\":<number>,\\\"coverLetter\\\":\\\"<string>\\\"}\\nIf job description is empty/invalid: {\\\"score\\\":0,\\\"coverLetter\\\":\\\"\\\"}\"},{\"role\":\"user\",\"content\":\"Job Description:\\n\" + $json.description + \"\\n\\nResume:\\n\" + $('Collect CV+HASH').item.json.cv_text}] }}"
             }
           ]
         },
@@ -658,6 +604,60 @@
       ],
       "name": "Call RemoteOK Scraping Sub-Workflow",
       "id": "038b3b83-c0dc-4033-9203-3766aa9e9e37"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.LLM_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{ $env.LLM_MODEL }}"
+            },
+            {
+              "name": "temperature",
+              "value": "={{ 0 }}"
+            },
+            {
+              "name": "=messages",
+              "value": "={{ [{\"role\":\"system\",\"content\":\"You are a technical recruiter with expertise in software engineering hiring. Always respond with valid JSON only.\"},{\"role\":\"user\",\"content\":$('Build AI Prompt').first().json.prompt}] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1888,
+        608
+      ],
+      "id": "cbf14e42-4a4c-484c-a38e-d5ad526f0468",
+      "name": "AI: Generate Keywords"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cvText = $('Collect CV+HASH').first().json.cv_text;\nconst promptTemplate = $('Read Keywords Prompt').first().json.param;\n\nconst prompt = `${promptTemplate}\n\nCV:\n${cvText}`;\n\nreturn [{ json: { prompt } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2112,
+        608
+      ],
+      "id": "021e61e8-666d-4479-8b4f-ac863547c5b7",
+      "name": "Build AI Prompt"
     }
   ],
   "pinData": {},
@@ -753,33 +753,11 @@
         ]
       ]
     },
-    "Build Groq Prompt": {
-      "main": [
-        [
-          {
-            "node": "Generate Keywords with Groq",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Generate Keywords with Groq": {
-      "main": [
-        [
-          {
-            "node": "Parse Keywords",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Read Keywords Prompt": {
       "main": [
         [
           {
-            "node": "Build Groq Prompt",
+            "node": "Build AI Prompt",
             "type": "main",
             "index": 0
           }
@@ -1000,6 +978,28 @@
           }
         ]
       ]
+    },
+    "AI: Generate Keywords": {
+      "main": [
+        [
+          {
+            "node": "Parse Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI: Generate Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -1008,7 +1008,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "988c9fc3-dc80-4e5f-925e-f46ec88e86cb",
+  "versionId": "827d2648-4757-4ba6-a92c-8c1a5d261562",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "6f07661684dfc4d1e6e6b7510d0c2f6c7ed427caa9513d3f8978a8a16bf5ddf9"

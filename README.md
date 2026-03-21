@@ -21,7 +21,7 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - [Choosing an LLM Provider](#choosing-an-llm-provider)
 - [Database Schema](#database-schema)
 - [Python API Reference](#python-api-reference)
-- [Rate Limits & Token Usage](#rate-limits--token-usage)
+- [Estimated token usage per job](#estimated-token-usage-per-job)
 - [Docker Services](#docker-services)
 - [Troubleshooting](#troubleshooting)
 - [Screenshots](#screenshots)
@@ -38,7 +38,8 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - **Deduplication** - jobs already seen or pending are skipped automatically across runs
 - **AI scoring** - scores each job 0–100 based on your CV, required skills, and years of experience
 - **Smart experience matching** - small experience gaps (1–2 years) don't heavily penalize the score
-- **Cover letter generation** - only generated for jobs scoring above 50, saving tokens
+- **Cover letter generation** - only generated for jobs scoring above the threshold, saving tokens
+- **Configurable score threshold** - set `FILTERING_SCORE` in your `.env` to control the minimum score for Notion entries and cover letter generation
 - **Notion integration** - matched jobs automatically appear in your Notion database with title, company, country, score, URL, cover letter, and source
 - **Telegram notification** - sends you a message when the workflow finishes each run
 - **Configurable search** - all LinkedIn search parameters controlled via a plain text JSON config file, no code changes needed
@@ -72,7 +73,7 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 │       ├── Wait (5s between each)                          │
 │       ├── LLM: Score + Cover Letter                       │
 │       ├── Parse JSON response                             │
-│       ├── Score filter (≥ 50)                              │
+│       ├── Score filter (≥ FILTERING_SCORE)                  │
 │       │   ├── True  → Create Notion page                  │
 │       │   └── False → Skip                                │
 │       └── Mark job as done → move to seen_jobs            │
@@ -241,6 +242,8 @@ LLM_API_KEY=your_api_key_here
 LLM_URL=https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
 # Model name supported by your chosen provider
 LLM_MODEL=gemini-2.5-flash
+# Minimum score (0–100) for a job to be saved to Notion (default: 60)
+FILTERING_SCORE=60
 
 # ── Notion ───────────────────────────────────────────
 # Get from https://www.notion.so/my-integrations
@@ -394,7 +397,7 @@ Each job is scored individually by the LLM using the following logic.
 {"score": 78, "coverLetter": "..."}
 ```
 
-The cover letter is a 2-paragraph professional body - no name, address, or signature - so it works as a clean template you can customize before sending. Jobs scoring 50 or below get an empty cover letter to save tokens.
+The cover letter is a 2-paragraph professional body - no name, address, or signature - so it works as a clean template you can customize before sending. Jobs scoring below `FILTERING_SCORE` (default 60) get an empty cover letter to save tokens.
 
 ---
 
@@ -478,11 +481,11 @@ The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From
 
 ```json
 {
-  "id": "linkedin_4384934676",
+  "id": "linkedin_xxxxxxxx",
   "title": "Software Engineer",
-  "company": "Acme Corp",
+  "company": "X Corp",
   "location": "Cairo, Egypt",
-  "applylink": "https://linkedin.com/jobs/view/4384934676",
+  "applylink": "https://linkedin.com/jobs/view/xxxxxxxx",
   "description": "We are looking for a software engineer...",
   "website": "linkedin"
 }
@@ -490,18 +493,7 @@ The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From
 
 ---
 
-## Rate Limits & Token Usage
-
-### Groq Free Tier (`llama-3.3-70b-versatile`)
-
-| Limit | Value |
-|-------|-------|
-| Requests per minute (RPM) | 30 |
-| Requests per day (RPD) | 1,000 |
-| Tokens per minute (TPM) | 12,000 |
-| Tokens per day (TPD) | 100,000 |
-
-### Estimated token usage per job
+## Estimated token usage per job
 
 | Component | Tokens (approx) |
 |-----------|----------------|
@@ -510,8 +502,6 @@ The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From
 | Job description | ~500–1,000 |
 | Output (score + cover letter) | ~400–600 |
 | **Total per job** | **~1,700–2,700** |
-
-At ~2,200 tokens average, the 100K TPD limit supports roughly **45 jobs per day**. If you regularly exceed this, switch to `meta-llama/llama-4-scout-17b-16e-instruct` which has a 500K TPD limit on the same free Groq tier, or switch to a different provider entirely via the `LLM_URL` and `LLM_MODEL` environment variables.
 
 ---
 
@@ -563,7 +553,7 @@ docker restart find-me-job-python-api
 ```
 
 **Jobs not appearing in Notion**
-Jobs scoring below 50 are intentionally skipped. Lower the threshold in the Score Filter If node if needed. Check the n8n execution log to see the scores being assigned.
+Jobs scoring below `FILTERING_SCORE` (default 60) are intentionally skipped. Lower the value in your `.env` if needed. Check the n8n execution log to see the scores being assigned.
 
 **Telegram notification not sending**
 - `TELEGRAM_ID` must be your numeric user ID, not your username - get it from [@get_id_bot](https://t.me/get_id_bot)
@@ -633,7 +623,6 @@ The bot sends you a message with a link to your Notion database when a run compl
 - [ ] Email notification support as alternative to Telegram
 - [ ] Support for multiple CV profiles (e.g., backend vs. full-stack)
 - [ ] Auto-apply integration for Easy Apply jobs
-- [ ] Score threshold configurable via environment variable
 - [ ] Historical analytics - track scores and match rates over time
 
 ---
