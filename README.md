@@ -23,6 +23,7 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - [Python API Reference](#python-api-reference)
 - [Estimated token usage per job](#estimated-token-usage-per-job)
 - [Docker Services](#docker-services)
+- [Download Size](#disk-footprint)
 - [Troubleshooting](#troubleshooting)
 - [Screenshots](#screenshots)
 - [Roadmap](#roadmap)
@@ -98,18 +99,18 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 │    └── Insert new jobs into pending_jobs             │
 └──────────────────────────────────────────────────────┘
 
-         │                    │
-         ▼                    ▼
-  Python FastAPI          SQLite DB
-  (sidecar API)       ┌──────────────┐
-  ┌────────────────┐  │ seen_jobs    │
-  │ /db/init       │  │ pending_jobs │
-  │ /job/exists    │  │ cv_keywords  │
-  │ /job/pending   │  └──────────────┘
-  │ /job/complete  │
-  │ /cv            │
-  │ /param/{name}  │
-  └────────────────┘
+         │                              │
+         ▼                              ▼
+  Python FastAPI                     SQLite DB
+  (sidecar API)                   ┌──────────────┐
+  ┌────────────────────────────┐  │ seen_jobs    │
+  │ /api/db/init               │  │ pending_jobs │
+  │ /api/db/job/exists         │  │ cv_keywords  │
+  │ /api/db/job/pending        │  └──────────────┘
+  │ /api/db/job/complete       │
+  │ /api/resources/cv          │
+  │ /api/resources/param/{name}│
+  └────────────────────────────┘
 ```
 
 ---
@@ -141,8 +142,15 @@ find-me-job/
 │   ├── linkedin_searches.txt                 # LinkedIn search config (JSON with multiple searches)
 │   └── llm_keywords_extract.txt              # LLM prompt for CV keyword extraction
 ├── python-api/
-│   ├── main.py                               # FastAPI sidecar server
-│   └── requirements.txt
+│   ├── Dockerfile                            # Python API image
+│   ├── requirements.txt
+│   └── src/
+│       ├── main.py                           # FastAPI app entry point
+│       ├── shared.py                         # DB connection, lock, constants
+│       └── routes/
+│           ├── __init__.py
+│           ├── db_route.py                   # DB and job endpoints
+│           └── resources_route.py            # CV and params endpoints
 └── data/
     ├── db/
     │   └── jobs.db                           # SQLite database
@@ -203,7 +211,7 @@ On first start, the custom n8n image automatically imports all workflows from th
 Run this once to create the SQLite tables:
 
 ```bash
-curl -X POST http://localhost:8001/db/init
+curl -X POST http://localhost:8001/api/db/init
 ```
 
 ### 7. Configure n8n credentials
@@ -466,18 +474,26 @@ Records older than **2 months** are automatically purged on each `/db/init` call
 
 The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From your host use `http://localhost:8001`.
 
+All endpoints are prefixed with `/api`.
+
+**Database routes** (`/api/db`):
+
 | Method | Endpoint | Params / Body | Description |
 |--------|----------|---------------|-------------|
-| `POST` | `/db/init` | - | Create tables, clean records older than 2 months |
-| `GET` | `/job/exists` | `?jobid=linkedin_123` | Returns `{"exists": true/false}` |
-| `POST` | `/job/pending` | JSON body | Insert a new job into pending_jobs |
-| `POST` | `/job/complete` | `?jobid=linkedin_123` | Move job from pending_jobs → seen_jobs |
-| `GET` | `/cv` | - | Extract and return text from cv.docx |
-| `GET` | `/param/{name}` | - | Read and return `params/{name}.txt` |
-| `GET` | `/health` | - | Returns `{"status": "ok"}` |
-| `POST` | `/query` | `{"sql": "...", "params": [...]}` | Raw SQL utility |
+| `POST` | `/api/db/init` | - | Create tables, clean records older than 2 months |
+| `GET` | `/api/db/job/exists` | `?jobid=linkedin_123` | Returns `{"exists": true/false}` |
+| `POST` | `/api/db/job/pending` | JSON body | Insert a new job into pending_jobs |
+| `POST` | `/api/db/job/complete` | `?jobid=linkedin_123` | Move job from pending_jobs → seen_jobs |
+| `POST` | `/api/db/query` | `{"sql": "...", "params": [...]}` | Raw SQL utility |
 
-### `/job/pending` request body
+**Resource routes** (`/api/resources`):
+
+| Method | Endpoint | Params / Body | Description |
+|--------|----------|---------------|-------------|
+| `GET` | `/api/resources/cv` | - | Extract and return text from cv.docx |
+| `GET` | `/api/resources/param/{name}` | - | Read and return `params/{name}.txt` |
+
+### `/api/db/job/pending` request body
 
 ```json
 {
@@ -510,7 +526,7 @@ The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From
 | Service | Image | Port | Purpose |
 |---------|-------|------|---------|
 | `n8n` | Custom (built from `n8n/Dockerfile` based on `n8nio/n8n:2.11.4`) | `5678` | Workflow automation engine with auto-import |
-| `find-me-job-python-api` | `python:3.11-slim` | `8001` | FastAPI sidecar for DB, CV, and params |
+| `find-me-job-python-api` | Custom (built from `python-api/Dockerfile` based on `python:3.12-slim`) | `8001` | FastAPI sidecar for DB, CV, and params |
 
 The n8n service uses a custom Docker image that automatically imports workflows from the `workflows/` directory on first start. Subsequent starts skip the import to preserve any manual changes made within n8n.
 
@@ -541,6 +557,21 @@ docker compose down -v
 # Force re-import of workflows on next start
 docker exec n8n rm /home/node/.n8n/.imported && docker restart n8n
 ```
+
+---
+
+## Download Size
+
+Estimated download size on first `docker compose up -d`:
+
+| Component | Download Size |
+|-----------|---------------|
+| n8n Docker image (`n8nio/n8n:2.11.4`) | ~274 MB |
+| Python base image (`python:3.12-slim`) | ~43 MB |
+| Python pip dependencies | ~5 MB |
+| **Total download** | **~320 MB** |
+
+The SQLite database and n8n internal data (in `data/`) grow over time but typically stay under a few MB.
 
 ---
 

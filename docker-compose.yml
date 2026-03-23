@@ -16,15 +16,12 @@ services:
       - python-api
 
   python-api:
-    image: python:3.11-slim
+    build:
+      context: ./python-api
+      dockerfile: Dockerfile
     container_name: find-me-job-python-api
     restart: on-failure
-    working_dir: /app
-    command: >
-      sh -c "pip install -r requirements.txt -q &&
-             uvicorn main:app --host 0.0.0.0 --port 8001"
     volumes:
-      - ./python-api:/app
       - ./data/db:/data/db
       - ./cv.docx:/data/cv.docx
       - ./params:/data/params

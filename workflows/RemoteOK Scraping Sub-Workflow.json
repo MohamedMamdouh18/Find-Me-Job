@@ -87,7 +87,7 @@
     },
     {
       "parameters": {
-        "url": "=http://python-api:8001/job/exists",
+        "url": "=http://python-api:8001/api/db/job/exists",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -111,7 +111,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://python-api:8001/job/pending",
+        "url": "http://python-api:8001/api/db/job/pending",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -282,12 +282,12 @@
       ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": false
   },
-  "versionId": "219ae032-e1fe-4549-9246-04c71d46fb23",
+  "versionId": "c089ee16-a08c-4a5e-86e7-a5e1dad7c832",
   "meta": {
     "instanceId": "6f07661684dfc4d1e6e6b7510d0c2f6c7ed427caa9513d3f8978a8a16bf5ddf9"
   },

@@ -1,68 +1,11 @@
-import sqlite3
-import threading
-import time
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 from typing import Any, Optional
-from docx import Document
-import os
 
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
-class TimedLock:
-    """Lock that auto-releases if held longer than max_hold_seconds."""
+from ..shared import acquire_lock, db_lock, get_db
 
-    def __init__(self, max_hold_seconds=5):
-        self._lock = threading.Lock()
-        self._max_hold = max_hold_seconds
-        self._acquired_at = None
-        self._timer = None
-
-    def acquire(self, timeout=5):
-        acquired = self._lock.acquire(timeout=timeout)
-        if not acquired:
-            return False
-        self._acquired_at = time.time()
-        self._timer = threading.Timer(self._max_hold, self._force_release)
-        self._timer.start()
-        return True
-
-    def release(self):
-        if self._timer:
-            self._timer.cancel()
-            self._timer = None
-        if self._lock.locked():
-            self._lock.release()
-
-    def _force_release(self):
-        if self._lock.locked():
-            self._lock.release()
-
-    def locked(self):
-        return self._lock.locked()
-
-
-db_lock = TimedLock(max_hold_seconds=5)
-app = FastAPI()
-DB = "/data/db/jobs.db"
-CV_PATH = "/data/cv.docx"
-PARAMS_DIR = "/data/params"
-
-
-def get_db():
-    con = sqlite3.connect(DB, timeout=30)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
-    con.execute("PRAGMA busy_timeout=30000")
-    return con
-
-
-def acquire_lock(timeout=5):
-    acquired = db_lock._lock.acquire(timeout=timeout)
-    if not acquired:
-        raise HTTPException(status_code=503, detail="DB lock timeout — try again")
-
-
-# ── Database ──────────────────────────────────────────
+db_router = APIRouter(prefix="/api/db", tags=["api", "db"])
 
 
 class QueryRequest(BaseModel):
@@ -80,7 +23,7 @@ class PendingJobRequest(BaseModel):
     website: Optional[str] = None
 
 
-@app.post("/query")
+@db_router.post("/query")
 def query(req: QueryRequest):
     acquire_lock()
     try:
@@ -100,7 +43,7 @@ def query(req: QueryRequest):
     return {"rows": [dict(r) for r in rows]}
 
 
-@app.post("/db/init")
+@db_router.post("/init")
 def init_db():
     acquire_lock()
     try:
@@ -122,7 +65,7 @@ def init_db():
     return {"status": "ok"}
 
 
-@app.get("/job/exists")
+@db_router.get("/job/exists")
 def job_exists(jobid: str):
     con = get_db()
     cur = con.cursor()
@@ -135,7 +78,7 @@ def job_exists(jobid: str):
     return {"exists": exists}
 
 
-@app.post("/job/pending")
+@db_router.post("/job/pending")
 def add_pending_job(job: PendingJobRequest):
     acquire_lock()
     try:
@@ -161,7 +104,7 @@ def add_pending_job(job: PendingJobRequest):
     return {"inserted": inserted}
 
 
-@app.post("/job/complete")
+@db_router.post("/job/complete")
 def complete_job(jobid: str):
     acquire_lock()
     try:
@@ -178,33 +121,3 @@ def complete_job(jobid: str):
     finally:
         db_lock.release()
     return {"status": "ok", "jobid": jobid}
-
-
-# ── CV ────────────────────────────────────────────────
-
-
-@app.get("/cv")
-def get_cv():
-    doc = Document(CV_PATH)
-    text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-    return {"cv": text}
-
-
-# ── Prompts ───────────────────────────────────────────
-
-
-@app.get("/param/{name}")
-def get_param(name: str):
-    path = os.path.join(PARAMS_DIR, f"{name}.txt")
-    if not os.path.exists(path):
-        return {"error": f"param '{name}' not found"}
-    with open(path, "r") as f:
-        return {"param": f.read()}
-
-
-# ── Health ────────────────────────────────────────────
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
