@@ -44,7 +44,7 @@ CV_PATH = "/data/cv.docx"
 PARAMS_DIR = "/data/params"
 
 
-def get_db():
+def get_connection():
     con = sqlite3.connect(DB, timeout=30)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")

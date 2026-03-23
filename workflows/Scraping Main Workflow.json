@@ -37,7 +37,7 @@
     },
     {
       "parameters": {
-        "url": "http://python-api:8001/api/resources/cv",
+        "url": "http://python-api:8001/api/cv",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -66,7 +66,7 @@
     },
     {
       "parameters": {
-        "value": "={{ $('Read CV').first().json.cv }}",
+        "value": "={{ $('Read CV').first().json.cv_text }}",
         "dataPropertyName": "cv_hash"
       },
       "type": "n8n-nodes-base.crypto",
@@ -80,7 +80,7 @@
     },
     {
       "parameters": {
-        "jsCode": "return [{\n  json: {\n    cv_hash: $input.first().json.cv_hash,\n    cv_text: $('Read CV').first().json.cv\n  }\n}];"
+        "jsCode": "return [{\n  json: {\n    cv_hash: $input.first().json.cv_hash,\n    cv_text: $('Read CV').first().json.cv_text\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -93,17 +93,7 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "http://python-api:8001/api/db/query",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "sql",
-              "value": "SELECT cv_hash, keywords FROM cv_keywords WHERE id = 1"
-            }
-          ]
-        },
+        "url": "=http://python-api:8001/api/cv/check/{{ $json.cv_hash }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -127,20 +117,12 @@
           "conditions": [
             {
               "id": "347e0f5e-579f-48ec-9d10-516fb8bb0c53",
-              "leftValue": "={{ $input.first().json.rows.length }}",
+              "leftValue": "={{ $json.exists}}",
               "rightValue": 0,
               "operator": {
-                "type": "number",
-                "operation": "equals"
-              }
-            },
-            {
-              "id": "616e2f54-2a1b-4254-969b-a488b6217fba",
-              "leftValue": "={{ $input.first().json.rows[0].cv_hash }}",
-              "rightValue": "={{ $('Collect CV+HASH').first().json.cv_hash }}",
-              "operator": {
-                "type": "string",
-                "operation": "notEquals"
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
               }
             }
           ],
@@ -161,7 +143,7 @@
     },
     {
       "parameters": {
-        "url": "http://python-api:8001/api/resources/param/llm_keywords_extract",
+        "url": "http://python-api:8001/api/params/llm_keywords_extract",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -176,7 +158,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://python-api:8001/api/db/query",
+        "url": "http://python-api:8001/api/cv/keywords",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -185,8 +167,12 @@
               "value": "INSERT OR REPLACE INTO cv_keywords (id, cv_hash, keywords) VALUES (1, ?, ?)"
             },
             {
-              "name": "params",
-              "value": "={{ [$('Collect CV+HASH').first().json.cv_hash, $('Parse Keywords').first().json.keywords_str] }}"
+              "name": "cv_hash",
+              "value": "={{ $('Collect CV+HASH').first().json.cv_hash }}"
+            },
+            {
+              "name": "keywords",
+              "value": "={{ $('Parse Keywords').first().json.keywords_str }}"
             }
           ]
         },
@@ -216,17 +202,7 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "http://python-api:8001/api/db/query",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "sql",
-              "value": "SELECT keywords FROM cv_keywords WHERE id = 1"
-            }
-          ]
-        },
+        "url": "http://python-api:8001/api/cv/keywords",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -240,7 +216,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const row = $input.first().json.rows[0];\nconst keywords = JSON.parse(row.keywords);\n\nreturn [{\n  json: {\n    keywords,\n    keywords_str: row.keywords\n  }\n}];"
+        "jsCode": "const row =$input.first().json.keywords ;\nconst keywords = JSON.parse(row);\n\nreturn [{\n  json: {\n    keywords,\n    keywords_str: row\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -357,17 +333,7 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "http://python-api:8001/api/db/query",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "sql",
-              "value": "SELECT * FROM pending_jobs"
-            }
-          ]
-        },
+        "url": "http://python-api:8001/api/jobs/pending",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -411,7 +377,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://python-api:8001/api/db/job/complete",
+        "url": "http://python-api:8001/api/jobs/job/complete",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -1008,7 +974,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "f0487170-17d6-4a79-8519-05d30e8f6585",
+  "versionId": "18caeb1b-8275-47f8-a1b9-fa8bb4f684e3",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "6f07661684dfc4d1e6e6b7510d0c2f6c7ed427caa9513d3f8978a8a16bf5ddf9"

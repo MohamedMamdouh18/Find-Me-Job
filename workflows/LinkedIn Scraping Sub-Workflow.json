@@ -163,7 +163,7 @@
     },
     {
       "parameters": {
-        "url": "http://python-api:8001/api/resources/param/linkedin_searches",
+        "url": "http://python-api:8001/api/params/linkedin_searches",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -225,7 +225,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://python-api:8001/api/db/job/pending",
+        "url": "http://python-api:8001/api/jobs/pending",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -299,7 +299,7 @@
     },
     {
       "parameters": {
-        "url": "http://python-api:8001/api/db/job/exists",
+        "url": "http://python-api:8001/api/jobs/exists",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -532,7 +532,7 @@
     "executionOrder": "v1",
     "availableInMCP": false
   },
-  "versionId": "4f85e99b-b877-4f57-9cd2-66659ca3283b",
+  "versionId": "9e6dd3ff-8771-4465-aad5-2aee63b62a84",
   "meta": {
     "instanceId": "6f07661684dfc4d1e6e6b7510d0c2f6c7ed427caa9513d3f8978a8a16bf5ddf9"
   },

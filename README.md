@@ -4,12 +4,15 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 
 ![n8n Main Workflow](assets/n8n-main-workflow.png)
 
+| LinkedIn Sub-Workflow | RemoteOK Sub-Workflow |
+|:---:|:---:|
+| ![LinkedIn Sub-Workflow](assets/linkedin-scraping-subworkflow.png) | ![RemoteOK Sub-Workflow](assets/remoteok-scraping-subworkflow.png) |
+
 ---
 
 ## Table of Contents
 
 - [Features](#features)
-- [Architecture](#architecture)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
@@ -25,8 +28,6 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - [Docker Services](#docker-services)
 - [Download Size](#disk-footprint)
 - [Troubleshooting](#troubleshooting)
-- [Screenshots](#screenshots)
-- [Roadmap](#roadmap)
 - [License](#license)
 
 ---
@@ -53,68 +54,6 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 
 ---
 
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                   Main n8n Workflow                       │
-│                                                           │
-│  Schedule Trigger                                         │
-│       │                                                   │
-│       ├── Call LinkedIn Sub-Workflow ──────────────────┐   │
-│       │   (loops over all searches in config)         │   │
-│       │                                               │   │
-│       └── Call RemoteOK Sub-Workflow ─────────────┐   │   │
-│                                                   │   │   │
-│  ◄── Collect results from both sub-workflows ─────┘───┘   │
-│       │                                                   │
-│  Query all pending jobs from DB                           │
-│       │                                                   │
-│  Split Out (one by one)                                   │
-│       ├── Wait (5s between each)                          │
-│       ├── LLM: Score + Cover Letter                       │
-│       ├── Parse JSON response                             │
-│       ├── Score filter (≥ FILTERING_SCORE)                  │
-│       │   ├── True  → Create Notion page                  │
-│       │   └── False → Skip                                │
-│       └── Mark job as done → move to seen_jobs            │
-│                                                           │
-│  Telegram: Send completion notification                   │
-│                                                           │
-└──────────────────────────────────────────────────────────┘
-
-┌─ LinkedIn Sub-Workflow ──────────────────────────────┐
-│  Receives search params from main workflow           │
-│  Build search URL → Fetch HTML → Extract job links   │
-│  Loop (with 5s delay per job)                        │
-│    ├── Fetch job page                                │
-│    ├── Parse title/company/desc                      │
-│    └── Check DB + insert new jobs into pending_jobs  │
-└──────────────────────────────────────────────────────┘
-
-┌─ RemoteOK Sub-Workflow ──────────────────────────────┐
-│  Fetch RemoteOK API → Filter by CV keywords          │
-│  Loop over results                                   │
-│    ├── Check DB for duplicates                       │
-│    └── Insert new jobs into pending_jobs             │
-└──────────────────────────────────────────────────────┘
-
-         │                              │
-         ▼                              ▼
-  Python FastAPI                     SQLite DB
-  (sidecar API)                   ┌──────────────┐
-  ┌────────────────────────────┐  │ seen_jobs    │
-  │ /api/db/init               │  │ pending_jobs │
-  │ /api/db/job/exists         │  │ cv_keywords  │
-  │ /api/db/job/pending        │  └──────────────┘
-  │ /api/db/job/complete       │
-  │ /api/resources/cv          │
-  │ /api/resources/param/{name}│
-  └────────────────────────────┘
-```
-
----
-
 ## Project Structure
 
 ```
@@ -131,13 +70,6 @@ find-me-job/
 │   ├── Scraping Main Workflow.json           # Main orchestration workflow
 │   ├── LinkedIn Scraping Sub-Workflow.json   # LinkedIn scraping sub-workflow
 │   └── RemoteOK Scraping Sub-Workflow.json   # RemoteOK scraping sub-workflow
-├── assets/
-│   ├── n8n-main-workflow.png                 # Main workflow screenshot
-│   ├── linkedin-scraping-subworkflow.png     # LinkedIn sub-workflow screenshot
-│   ├── remoteok-scraping-subworkflow.png     # RemoteOK sub-workflow screenshot
-│   ├── notion-database.png                   # Notion database screenshot
-│   ├── n8n-notion-account-setup.png          # n8n Notion credential setup
-│   └── telegram-bot.png                      # Telegram notification screenshot
 ├── params/
 │   ├── linkedin_searches.txt                 # LinkedIn search config (JSON with multiple searches)
 │   └── llm_keywords_extract.txt              # LLM prompt for CV keyword extraction
@@ -149,8 +81,10 @@ find-me-job/
 │       ├── shared.py                         # DB connection, lock, constants
 │       └── routes/
 │           ├── __init__.py
-│           ├── db_route.py                   # DB and job endpoints
-│           └── resources_route.py            # CV and params endpoints
+│           ├── cv_route.py                   # CV text extraction and keyword cache
+│           ├── db_route.py                   # Database initialization
+│           ├── jobs_route.py                 # Job exists, pending, complete
+│           └── params_route.py               # Config file reader
 └── data/
     ├── db/
     │   └── jobs.db                           # SQLite database
@@ -272,15 +206,6 @@ Edit `params/linkedin_searches.txt`. The file supports **multiple searches** in 
 
 ```json
 {
-  "_meta": {
-    "Easy Apply": "true to enable, empty string to disable",
-    "Remote": "Remote | Hybrid | On-Site (comma separated)",
-    "Experience Level": "Internship | Entry level | Associate | Mid-Senior level | Director | Executive (comma separated)",
-    "Job Type": "Full-time | Part-time | Contract | Temporary | Internship (comma separated)",
-    "Last Posted": "r86400 = 24h | r604800 = 1 week | r2592000 = 1 month",
-    "Keyword": "Single value only",
-    "Location": "Single value only"
-  },
   "searches": [
     {
       "Keyword": "Software Engineer",
@@ -303,8 +228,6 @@ Edit `params/linkedin_searches.txt`. The file supports **multiple searches** in 
   ]
 }
 ```
-
-> The `_meta` block is a reference guide for valid values - it is not used by the workflow.
 
 Add as many search objects to the `searches` array as you need - each one runs as a separate LinkedIn query within the same workflow execution.
 
@@ -377,6 +300,8 @@ In n8n, go to **Settings** → **Credentials** → **Add Credential** → **Noti
 ![n8n Notion Credential Setup](assets/n8n-notion-account-setup.png)
 
 For Telegram, add a Telegram credential with `{{ $env.TELEGRAM_BOT_TOKEN }}`.
+
+![Telegram Notification](assets/telegram-bot.png)
 
 ---
 
@@ -476,24 +401,37 @@ The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From
 
 All endpoints are prefixed with `/api`.
 
-**Database routes** (`/api/db`):
+**Database** (`/api/db`):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/db/init` | Create tables, clean records older than 2 months |
+
+**Jobs** (`/api/jobs`):
 
 | Method | Endpoint | Params / Body | Description |
 |--------|----------|---------------|-------------|
-| `POST` | `/api/db/init` | - | Create tables, clean records older than 2 months |
-| `GET` | `/api/db/job/exists` | `?jobid=linkedin_123` | Returns `{"exists": true/false}` |
-| `POST` | `/api/db/job/pending` | JSON body | Insert a new job into pending_jobs |
-| `POST` | `/api/db/job/complete` | `?jobid=linkedin_123` | Move job from pending_jobs → seen_jobs |
-| `POST` | `/api/db/query` | `{"sql": "...", "params": [...]}` | Raw SQL utility |
+| `GET` | `/api/jobs/exists` | `?jobid=linkedin_123` | Returns `{"exists": true/false}` |
+| `POST` | `/api/jobs/pending` | JSON body | Insert a new job into pending_jobs |
+| `GET` | `/api/jobs/pending` | - | List all pending jobs |
+| `POST` | `/api/jobs/job/complete` | `?jobid=linkedin_123` | Move job from pending_jobs → seen_jobs |
 
-**Resource routes** (`/api/resources`):
+**CV** (`/api/cv`):
 
 | Method | Endpoint | Params / Body | Description |
 |--------|----------|---------------|-------------|
-| `GET` | `/api/resources/cv` | - | Extract and return text from cv.docx |
-| `GET` | `/api/resources/param/{name}` | - | Read and return `params/{name}.txt` |
+| `GET` | `/api/cv` | - | Extract and return text from cv.docx |
+| `GET` | `/api/cv/check/{cv_hash}` | - | Check if a CV hash exists in keyword cache |
+| `GET` | `/api/cv/keywords` | - | Get cached keywords and CV hash |
+| `POST` | `/api/cv/keywords` | `{"cv_hash": "...", "keywords": "..."}` | Save/update keyword cache |
 
-### `/api/db/job/pending` request body
+**Params** (`/api/params`):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/params/{name}` | Read and return `params/{name}.txt` |
+
+### `/api/jobs/pending` request body
 
 ```json
 {
@@ -604,57 +542,6 @@ Jobs scoring below `FILTERING_SCORE` (default 60) are intentionally skipped. Low
   ```bash
   docker exec n8n rm /home/node/.n8n/.imported && docker restart n8n
   ```
-
----
-
-## Screenshots
-
-### Main Workflow
-
-The main orchestration workflow - calls both scraping sub-workflows, then scores and processes results:
-
-![Main Workflow](assets/n8n-main-workflow.png)
-
-### LinkedIn Scraping Sub-Workflow
-
-Handles LinkedIn search URL construction, HTML fetching, and job parsing:
-
-![LinkedIn Sub-Workflow](assets/linkedin-scraping-subworkflow.png)
-
-### RemoteOK Scraping Sub-Workflow
-
-Fetches from the RemoteOK API, filters by CV keywords, and stores new jobs:
-
-![RemoteOK Sub-Workflow](assets/remoteok-scraping-subworkflow.png)
-
-### Notion Database
-
-Matched jobs with scores, company, country, and cover letters, ready to review:
-
-![Notion Database](assets/notion-database.png)
-
-### n8n Credential Setup
-
-How to configure the Notion API credential in n8n using environment variables:
-
-![n8n Notion Credential Setup](assets/n8n-notion-account-setup.png)
-
-### Telegram Notification
-
-The bot sends you a message with a link to your Notion database when a run completes:
-
-![Telegram Notification](assets/telegram-bot.png)
-
----
-
-## Roadmap
-
-- [ ] Add more job sources (Indeed, Glassdoor, Wuzzuf)
-- [ ] Web dashboard to view and manage matched jobs
-- [ ] Email notification support as alternative to Telegram
-- [ ] Support for multiple CV profiles (e.g., backend vs. full-stack)
-- [ ] Auto-apply integration for Easy Apply jobs
-- [ ] Historical analytics - track scores and match rates over time
 
 ---
 
