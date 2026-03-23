@@ -21,6 +21,9 @@ services:
       dockerfile: Dockerfile
     container_name: find-me-job-python-api
     restart: on-failure
+    environment:
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+      - DELETE_OLD_JOBS_DAYS=${DELETE_OLD_JOBS_DAYS}
     volumes:
       - ./data/db:/data/db
       - ./cv.docx:/data/cv.docx

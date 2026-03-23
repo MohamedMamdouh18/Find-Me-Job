@@ -1,10 +1,21 @@
 from fastapi import FastAPI
 
-from .routes import cv_router, db_router, jobs_router, params_router
+from .routes import cv_router, jobs_router, params_router
+from contextlib import asynccontextmanager
+from .database.core import init_db
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # STARTUP
+    init_db()
+    yield
+
+    # SHUTDOWN
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.include_router(cv_router)
-app.include_router(db_router)
 app.include_router(jobs_router)
 app.include_router(params_router)

@@ -43,26 +43,11 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -3680,
+        -3424,
         688
       ],
       "id": "96bcd4ce-f73e-48dc-922f-7529e67ccd91",
       "name": "Read CV"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://python-api:8001/api/db/init",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        -3456,
-        688
-      ],
-      "id": "00fbcf64-db07-4f11-8dd4-8f6e01bf9bab",
-      "name": "Init Sqlite DB"
     },
     {
       "parameters": {
@@ -311,7 +296,7 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
       "position": [
-        -3904,
+        -3648,
         688
       ],
       "id": "1b3124d3-0119-4b71-8421-0abc3e695b70",
@@ -650,17 +635,6 @@
       "main": [
         [
           {
-            "node": "Init Sqlite DB",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Init Sqlite DB": {
-      "main": [
-        [
-          {
             "node": "Hash The CV",
             "type": "main",
             "index": 0
@@ -974,7 +948,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "18caeb1b-8275-47f8-a1b9-fa8bb4f684e3",
+  "versionId": "f94e9c24-c467-4711-859e-05991f1a7281",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "6f07661684dfc4d1e6e6b7510d0c2f6c7ed427caa9513d3f8978a8a16bf5ddf9"

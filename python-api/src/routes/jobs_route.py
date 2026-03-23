@@ -1,6 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from ..shared import acquire_lock, get_connection, db_lock
+from sqlmodel import Session
+
+from ..database import get_session
+from ..database.models import PendingJob
+from ..database.repositories import PendingJobRepository, SeenJobRepository
 
 jobs_router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -16,76 +20,34 @@ class PendingJobRequest(BaseModel):
 
 
 @jobs_router.get("/exists")
-def job_exists(jobid: str):
-    acquire_lock()
-    con = get_connection()
-    try:
-        cur = con.cursor()
-        cur.execute(
-            "SELECT 1 FROM seen_jobs WHERE id = ? UNION SELECT 1 FROM pending_jobs WHERE id = ?",
-            (jobid, jobid),
-        )
-        exists = cur.fetchone() is not None
-        return {"exists": exists}
-    finally:
-        con.close()
-        db_lock.release()
+def job_exists(jobid: str, session: Session = Depends(get_session)):
+    exists = (
+        PendingJobRepository(session).exists(jobid)
+        or SeenJobRepository(session).exists(jobid)
+    )
+    return {"exists": exists}
 
 
 @jobs_router.post("/pending")
-def add_pending_job(job: PendingJobRequest):
-    acquire_lock()
-    conn = get_connection()
-    try:
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO pending_jobs
-                (id, title, company, location, applylink, description, website)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                job.id,
-                job.title,
-                job.company,
-                job.location,
-                job.applylink,
-                job.description,
-                job.website,
-            ),
-        )
-        conn.commit()
-        return {"status": "ok"}
-    finally:
-        conn.close()
-        db_lock.release()
+def add_pending_job(job: PendingJobRequest, session: Session = Depends(get_session)):
+    PendingJobRepository(session).add(PendingJob(**job.model_dump()))
+    session.commit()
+    return {"status": "ok"}
 
 
 @jobs_router.post("/job/complete")
-def complete_job(jobid: str):
-    acquire_lock()
-    con = get_connection()
-    try:
-        cur = con.cursor()
-        cur.execute("SELECT id FROM pending_jobs WHERE id = ?", (jobid,))
-        if cur.fetchone() is None:
-            con.close()
-            raise HTTPException(status_code=404, detail=f"Job {jobid} not found in pending_jobs")
-        cur.execute("INSERT OR IGNORE INTO seen_jobs (id) VALUES (?)", (jobid,))
-        cur.execute("DELETE FROM pending_jobs WHERE id = ?", (jobid,))
-        con.commit()
-    finally:
-        con.close()
-        db_lock.release()
+def complete_job(jobid: str, session: Session = Depends(get_session)):
+    pending_repo = PendingJobRepository(session)
+    if not pending_repo.exists(jobid):
+        raise HTTPException(status_code=404, detail=f"Job {jobid} not found in pending_jobs")
+
+    SeenJobRepository(session).add(jobid)
+    pending_repo.delete(jobid)
+    session.commit()
     return {"status": "ok", "jobid": jobid}
 
 
 @jobs_router.get("/pending")
-def get_pending_jobs():
-    acquire_lock()
-    conn = get_connection()
-    try:
-        rows = conn.execute("SELECT * FROM pending_jobs ORDER BY created_at DESC").fetchall()
-        return {"rows": [dict(r) for r in rows]}
-    finally:
-        conn.close()
-        db_lock.release()
+def get_pending_jobs(session: Session = Depends(get_session)):
+    jobs = PendingJobRepository(session).get_all()
+    return {"rows": [job.model_dump() for job in jobs]}

@@ -50,7 +50,7 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - **Flexible LLM provider** - use any OpenAI-compatible API (Groq, Google AI Studio, OpenRouter, local models, etc.) by setting the URL, key, and model in your `.env`
 - **Auto-import workflows** - workflows are automatically imported into n8n on first container start, no manual import needed
 - **Rate limiting** - built-in delays between LinkedIn requests to avoid blocking
-- **Persistent storage** - SQLite tracks seen and pending jobs across runs, with automatic cleanup of records older than 2 months
+- **Persistent storage** - SQLite tracks seen and pending jobs across runs, with automatic cleanup of records older than `DELETE_OLD_JOBS_DAYS` (default 60) days
 
 ---
 
@@ -77,12 +77,21 @@ find-me-job/
 │   ├── Dockerfile                            # Python API image
 │   ├── requirements.txt
 │   └── src/
-│       ├── main.py                           # FastAPI app entry point
-│       ├── shared.py                         # DB connection, lock, constants
+│       ├── main.py                           # FastAPI app with lifespan startup
+│       ├── shared.py                         # Constants and timezone helpers
+│       ├── database/
+│       │   ├── core.py                       # SQLModel engine, session, DB init
+│       │   ├── models/
+│       │   │   ├── base_model.py             # SQLModel base class
+│       │   │   ├── cv_keywords.py
+│       │   │   ├── pending_job.py
+│       │   │   └── seen_job.py
+│       │   └── repositories/
+│       │       ├── cv_keywords.py
+│       │       ├── pending_jobs.py
+│       │       └── seen_jobs.py
 │       └── routes/
-│           ├── __init__.py
 │           ├── cv_route.py                   # CV text extraction and keyword cache
-│           ├── db_route.py                   # Database initialization
 │           ├── jobs_route.py                 # Job exists, pending, complete
 │           └── params_route.py               # Config file reader
 └── data/
@@ -140,22 +149,14 @@ docker compose up -d
 
 On first start, the custom n8n image automatically imports all workflows from the `workflows/` directory - no manual import needed.
 
-### 6. Initialize the database
-
-Run this once to create the SQLite tables:
-
-```bash
-curl -X POST http://localhost:8001/api/db/init
-```
-
-### 7. Configure n8n credentials
+### 6. Configure n8n credentials
 
 1. Open n8n at [http://localhost:5678](http://localhost:5678)
 2. The workflows are already imported and ready to use
 3. Update the Notion credentials and database ID in the Notion node (can also be accessed via `$env.NOTION_TOKEN` and `$env.NOTION_DB_URL`)
 4. The LLM API key, URL, and model are read automatically from your `.env`
 
-### 8. Set up Notion
+### 7. Set up Notion
 
 Follow the [Notion Setup](#notion-setup) section, then activate the workflow and run it.
 
@@ -176,6 +177,9 @@ DB_SQLITE_DATABASE=/data/db/n8n.db
 N8N_BLOCK_ENV_ACCESS_IN_NODE=false
 N8N_IMPORT_WORKFLOWS_FROM=/workflows
 GENERIC_TIMEZONE=Africa/Cairo
+
+# Days before old job records are purged on startup (default: 60)
+DELETE_OLD_JOBS_DAYS=60
 
 # ── LLM ──────────────────────────────────────────────
 # API key for your chosen LLM provider
@@ -389,7 +393,7 @@ CREATE TABLE cv_keywords (
 );
 ```
 
-Records older than **2 months** are automatically purged on each `/db/init` call.
+Records older than `DELETE_OLD_JOBS_DAYS` (default **60**) days are automatically purged on each container startup.
 
 **Viewing the database:** The file lives at `./data/db/jobs.db` on your host. Open it directly in [DBeaver](https://dbeaver.io/) - select SQLite, browse to the file, and connect. No server or credentials needed.
 
@@ -399,13 +403,7 @@ Records older than **2 months** are automatically purged on each `/db/init` call
 
 The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From your host use `http://localhost:8001`.
 
-All endpoints are prefixed with `/api`.
-
-**Database** (`/api/db`):
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/db/init` | Create tables, clean records older than 2 months |
+All endpoints are prefixed with `/api`. The database is initialized automatically on container startup (via FastAPI lifespan), so no manual init endpoint is needed.
 
 **Jobs** (`/api/jobs`):
 
@@ -464,7 +462,7 @@ All endpoints are prefixed with `/api`.
 | Service | Image | Port | Purpose |
 |---------|-------|------|---------|
 | `n8n` | Custom (built from `n8n/Dockerfile` based on `n8nio/n8n:2.11.4`) | `5678` | Workflow automation engine with auto-import |
-| `find-me-job-python-api` | Custom (built from `python-api/Dockerfile` based on `python:3.12-slim`) | `8001` | FastAPI sidecar for DB, CV, and params |
+| `find-me-job-python-api` | Custom (built from `python-api/Dockerfile` based on `python:3.12-slim`) | `8001` | FastAPI sidecar (SQLModel ORM) for DB, CV, and params |
 
 The n8n service uses a custom Docker image that automatically imports workflows from the `workflows/` directory on first start. Subsequent starts skip the import to preserve any manual changes made within n8n.
 
@@ -516,7 +514,7 @@ The SQLite database and n8n internal data (in `data/`) grow over time but typica
 ## Troubleshooting
 
 **`database is locked` error**
-The API uses WAL mode and a threading lock to prevent this. If it still occurs, restart the container:
+The API uses SQLite WAL mode with a 30-second busy timeout to prevent this. If it still occurs, restart the container:
 ```bash
 docker restart find-me-job-python-api
 ```
