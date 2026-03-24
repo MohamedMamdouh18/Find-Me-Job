@@ -50,7 +50,8 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - **Flexible LLM provider** - use any OpenAI-compatible API (Groq, Google AI Studio, OpenRouter, local models, etc.) by setting the URL, key, and model in your `.env`
 - **Auto-import workflows** - workflows are automatically imported into n8n on first container start, no manual import needed
 - **Rate limiting** - built-in delays between LinkedIn requests to avoid blocking
-- **Persistent storage** - SQLite tracks seen and pending jobs across runs, with automatic cleanup of records older than `DELETE_OLD_JOBS_DAYS` (default 60) days
+- **Persistent storage** - SQLite tracks seen and pending jobs across runs, with Alembic-managed schema migrations applied automatically on startup
+- **Scheduled cleanup** - old job records (older than `DELETE_OLD_JOBS_DAYS`, default 60 days) are purged on startup and daily at midnight
 
 ---
 
@@ -75,17 +76,22 @@ find-me-job/
 │   └── llm_keywords_extract.txt              # LLM prompt for CV keyword extraction
 ├── python-api/
 │   ├── Dockerfile                            # Python API image
+│   ├── alembic.ini                           # Alembic configuration
 │   ├── requirements.txt
 │   └── src/
-│       ├── main.py                           # FastAPI app with lifespan startup
+│       ├── main.py                           # FastAPI app with lifespan startup and scheduled jobs
 │       ├── shared.py                         # Constants and timezone helpers
 │       ├── database/
-│       │   ├── core.py                       # SQLModel engine, session, DB init
+│       │   ├── core.py                       # Engine, session, migrations, and cleanup
 │       │   ├── models/
 │       │   │   ├── base_model.py             # SQLModel base class
 │       │   │   ├── cv_keywords.py
 │       │   │   ├── pending_job.py
 │       │   │   └── seen_job.py
+│       │   ├── migrations/
+│       │   │   ├── env.py                    # Alembic environment config
+│       │   │   ├── script.py.mako            # Migration template
+│       │   │   └── versions/                 # Auto-generated migration scripts
 │       │   └── repositories/
 │       │       ├── cv_keywords.py
 │       │       ├── pending_jobs.py
@@ -178,7 +184,8 @@ N8N_BLOCK_ENV_ACCESS_IN_NODE=false
 N8N_IMPORT_WORKFLOWS_FROM=/workflows
 GENERIC_TIMEZONE=Africa/Cairo
 
-# Days before old job records are purged on startup (default: 60)
+# Days before old job records are purged (default: 60)
+# Cleanup runs on startup and daily at midnight
 DELETE_OLD_JOBS_DAYS=60
 
 # ── LLM ──────────────────────────────────────────────
@@ -393,7 +400,7 @@ CREATE TABLE cv_keywords (
 );
 ```
 
-Records older than `DELETE_OLD_JOBS_DAYS` (default **60**) days are automatically purged on each container startup.
+Schema is managed by **Alembic migrations**, applied automatically on each container startup. Records older than `DELETE_OLD_JOBS_DAYS` (default **60**) days are automatically purged on startup and daily at midnight.
 
 **Viewing the database:** The file lives at `./data/db/jobs.db` on your host. Open it directly in [DBeaver](https://dbeaver.io/) - select SQLite, browse to the file, and connect. No server or credentials needed.
 
@@ -403,7 +410,7 @@ Records older than `DELETE_OLD_JOBS_DAYS` (default **60**) days are automaticall
 
 The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From your host use `http://localhost:8001`.
 
-All endpoints are prefixed with `/api`. The database is initialized automatically on container startup (via FastAPI lifespan), so no manual init endpoint is needed.
+All endpoints are prefixed with `/api`. On startup, the API automatically runs Alembic migrations and purges old records. Old job cleanup also runs daily at midnight via a background scheduler.
 
 **Jobs** (`/api/jobs`):
 
@@ -462,7 +469,7 @@ All endpoints are prefixed with `/api`. The database is initialized automaticall
 | Service | Image | Port | Purpose |
 |---------|-------|------|---------|
 | `n8n` | Custom (built from `n8n/Dockerfile` based on `n8nio/n8n:2.11.4`) | `5678` | Workflow automation engine with auto-import |
-| `find-me-job-python-api` | Custom (built from `python-api/Dockerfile` based on `python:3.12-slim`) | `8001` | FastAPI sidecar (SQLModel ORM) for DB, CV, and params |
+| `find-me-job-python-api` | Custom (built from `python-api/Dockerfile` based on `python:3.12-slim`) | `8001` | FastAPI sidecar (SQLModel ORM, Alembic migrations) for DB, CV, and params |
 
 The n8n service uses a custom Docker image that automatically imports workflows from the `workflows/` directory on first start. Subsequent starts skip the import to preserve any manual changes made within n8n.
 
