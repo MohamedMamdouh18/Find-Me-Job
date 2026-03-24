@@ -1,6 +1,5 @@
 from datetime import timedelta
 import os
-from pathlib import Path
 
 from sqlmodel import Session
 from sqlalchemy import create_engine, event
@@ -8,7 +7,7 @@ from alembic.config import Config
 from alembic import command
 
 from ..shared import now
-from .repositories import PendingJobRepository, SeenJobRepository
+from .repositories import FilteredJobRepository, PendingJobRepository, SeenJobRepository
 
 DB = os.getenv("DB_PATH", "/data/db/jobs.db")
 engine = create_engine(
@@ -42,5 +41,6 @@ def delete_old_jobs():
     cutoff = now() - timedelta(days=deletion_old_jobs_days)
     with Session(engine) as session:
         PendingJobRepository(session).delete_older_than(cutoff)
+        FilteredJobRepository(session).delete_older_than(cutoff)
         SeenJobRepository(session).delete_older_than(cutoff)
         session.commit()

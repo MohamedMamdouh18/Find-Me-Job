@@ -1,36 +1,49 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 from sqlmodel import Session
 
 from ..database import get_session
-from ..database.models import PendingJob
-from ..database.repositories import PendingJobRepository, SeenJobRepository
+from ..database.models import FilteredJob, PendingJob
+from ..database.repositories import FilteredJobRepository, PendingJobRepository, SeenJobRepository
+from .requests_scheme.jobs import PendingJobRequest, FilteredJobRequest, StatusUpdate
 
 jobs_router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
-class PendingJobRequest(BaseModel):
-    id: str
-    title: str
-    company: str
-    location: str
-    applylink: str
-    description: str
-    website: str
-
-
 @jobs_router.get("/exists")
 def job_exists(jobid: str, session: Session = Depends(get_session)):
-    exists = (
-        PendingJobRepository(session).exists(jobid)
-        or SeenJobRepository(session).exists(jobid)
-    )
+    exists = SeenJobRepository(session).exists(jobid)
     return {"exists": exists}
 
 
 @jobs_router.post("/pending")
 def add_pending_job(job: PendingJobRequest, session: Session = Depends(get_session)):
+    SeenJobRepository(session).add(job.id)
     PendingJobRepository(session).add(PendingJob(**job.model_dump()))
+    session.commit()
+    return {"status": "ok"}
+
+
+@jobs_router.post("/filtered")
+def add_filtered_job(job: FilteredJobRequest, session: Session = Depends(get_session)):
+    PendingJobRepository(session).delete(job.id)
+    FilteredJobRepository(session).add(FilteredJob(**job.model_dump()))
+    session.commit()
+    return {"status": "ok"}
+
+
+@jobs_router.get("/filtered/{jobid}")
+def get_filtered_job(jobid: str, session: Session = Depends(get_session)):
+    job = FilteredJobRepository(session).get(jobid)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {jobid} not found")
+    return job.model_dump()
+
+
+@jobs_router.patch("/filtered/{jobid}/status")
+def update_job_status(jobid: str, body: StatusUpdate, session: Session = Depends(get_session)):
+    updated = FilteredJobRepository(session).update_status(jobid, body.user_status)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Job {jobid} not found")
     session.commit()
     return {"status": "ok"}
 

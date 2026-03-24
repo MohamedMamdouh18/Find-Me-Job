@@ -15,6 +15,9 @@ class PendingJobRepository:
     def add(self, job: PendingJob):
         self.session.merge(job)
 
+    def get(self, job_id: str) -> PendingJob | None:
+        return self.session.get(PendingJob, job_id)
+
     def get_all(self) -> list[PendingJob]:
         statement = select(PendingJob).order_by(PendingJob.created_at.desc())  # type: ignore
         return list(self.session.exec(statement).all())

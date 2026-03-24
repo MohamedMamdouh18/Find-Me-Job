@@ -9,8 +9,8 @@
       "name": "Wait",
       "type": "n8n-nodes-base.wait",
       "position": [
-        1440,
-        992
+        1456,
+        976
       ],
       "webhookId": "c9cb4878-ae4d-4b8e-bd37-5395011f7761",
       "typeVersion": 1.1
@@ -23,8 +23,8 @@
       "name": "Create search URL",
       "type": "n8n-nodes-base.code",
       "position": [
-        -352,
-        1040
+        -336,
+        1056
       ],
       "typeVersion": 2
     },
@@ -37,8 +37,8 @@
       "name": "Fetch Jobs from Linkedin",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        -128,
-        1040
+        -112,
+        1056
       ],
       "typeVersion": 4.2
     },
@@ -51,8 +51,8 @@
       "name": "Fetch Job Page",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        1664,
-        992
+        1680,
+        976
       ],
       "executeOnce": false,
       "retryOnFail": true,
@@ -95,8 +95,8 @@
       "name": "Parse Job Attributes",
       "type": "n8n-nodes-base.html",
       "position": [
-        1888,
-        992
+        1904,
+        976
       ],
       "typeVersion": 1.2
     },
@@ -131,8 +131,8 @@
       "name": "Modify Job Attributes",
       "type": "n8n-nodes-base.set",
       "position": [
-        2112,
-        992
+        2128,
+        976
       ],
       "typeVersion": 3.4
     },
@@ -156,8 +156,8 @@
       "name": "Extract Job Links",
       "type": "n8n-nodes-base.html",
       "position": [
-        96,
-        1040
+        112,
+        1056
       ],
       "typeVersion": 1.2
     },
@@ -169,8 +169,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -576,
-        1040
+        -560,
+        1056
       ],
       "id": "93f3f44e-ada2-4d71-8fbc-34c45814479d",
       "name": "Read Keywords Prompt1"
@@ -183,8 +183,8 @@
       "name": "Loop Over Items",
       "type": "n8n-nodes-base.splitInBatches",
       "position": [
-        768,
-        1040
+        784,
+        1056
       ],
       "typeVersion": 3
     },
@@ -216,8 +216,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        1216,
-        992
+        1232,
+        976
       ],
       "id": "1857419a-270a-4253-90bd-47146e887fc4",
       "name": "If"
@@ -256,6 +256,10 @@
             {
               "name": "website",
               "value": "LinkedIn"
+            },
+            {
+              "name": "easy_apply",
+              "value": "={{ $json.easy_apply }}"
             }
           ]
         },
@@ -264,8 +268,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        2336,
-        1104
+        2576,
+        1056
       ],
       "id": "9a880cad-ece0-4a1e-a158-b25f2fbf57fa",
       "name": "Add Job to DB2"
@@ -277,8 +281,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        544,
-        1040
+        560,
+        1056
       ],
       "id": "b1b9ab58-2174-4b76-82ec-5790a19d6c86",
       "name": "Code in JavaScript"
@@ -292,8 +296,8 @@
       "name": "Split Out",
       "type": "n8n-nodes-base.splitOut",
       "position": [
-        320,
-        1040
+        336,
+        1056
       ],
       "typeVersion": 1
     },
@@ -314,8 +318,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1024,
-        912
+        1008,
+        976
       ],
       "id": "2bdcc301-91ee-417c-bf0a-1425bb4d5493",
       "name": "Check if job in DB"
@@ -325,7 +329,7 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        880,
+        1008,
         784
       ],
       "id": "709d861e-a9ff-4df0-afce-432e464c2c50",
@@ -341,8 +345,21 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "position": [
         -784,
-        1040
+        1056
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return {\n  json: {\n    ...$input.first().json,\n    easy_apply: !$('Fetch Job Page').first().json.data.includes('apply-button__offsite-apply-icon-svg')\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        976
+      ],
+      "id": "a8832f74-763a-49d5-9064-4c6434d05918",
+      "name": "Attach Easy Apply"
     }
   ],
   "pinData": {},
@@ -406,7 +423,7 @@
       "main": [
         [
           {
-            "node": "Add Job to DB2",
+            "node": "Attach Easy Apply",
             "type": "main",
             "index": 0
           }
@@ -525,6 +542,17 @@
           }
         ]
       ]
+    },
+    "Attach Easy Apply": {
+      "main": [
+        [
+          {
+            "node": "Add Job to DB2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -532,7 +560,7 @@
     "executionOrder": "v1",
     "availableInMCP": false
   },
-  "versionId": "9e6dd3ff-8771-4465-aad5-2aee63b62a84",
+  "versionId": "6db5eb46-ea19-44c5-96ea-fd16679e60bd",
   "meta": {
     "instanceId": "6f07661684dfc4d1e6e6b7510d0c2f6c7ed427caa9513d3f8978a8a16bf5ddf9"
   },

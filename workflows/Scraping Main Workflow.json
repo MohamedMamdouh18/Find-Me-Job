@@ -30,8 +30,8 @@
       "name": "Score Filter",
       "type": "n8n-nodes-base.if",
       "position": [
-        1472,
-        688
+        1504,
+        608
       ],
       "typeVersion": 2.2
     },
@@ -44,7 +44,7 @@
       "typeVersion": 4.4,
       "position": [
         -3424,
-        688
+        680
       ],
       "id": "96bcd4ce-f73e-48dc-922f-7529e67ccd91",
       "name": "Read CV"
@@ -57,8 +57,8 @@
       "type": "n8n-nodes-base.crypto",
       "typeVersion": 2,
       "position": [
-        -3232,
-        688
+        -3200,
+        680
       ],
       "id": "e06664bd-9317-4bc7-9ef1-942ac8027faa",
       "name": "Hash The CV"
@@ -70,8 +70,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -3008,
-        688
+        -2976,
+        680
       ],
       "id": "32da9c31-6340-4c59-a0b7-7861518ff4e9",
       "name": "Collect CV+HASH"
@@ -84,8 +84,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -2784,
-        688
+        -2752,
+        680
       ],
       "id": "c7c426c8-b359-48d2-8e2d-64a7c2af2724",
       "name": "Check Existing CV in DB"
@@ -120,8 +120,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -2560,
-        688
+        -2528,
+        680
       ],
       "id": "53af36b7-6c4d-48ae-8de4-ea3e5718c7be",
       "name": "If CV Changed ?"
@@ -134,7 +134,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -2336,
+        -2304,
         608
       ],
       "id": "27d74c11-c2fe-4569-932a-34f20e179e10",
@@ -166,7 +166,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -1440,
+        -1408,
         608
       ],
       "id": "40780562-8db9-44f0-9cf3-c548a1979d31",
@@ -179,7 +179,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1664,
+        -1632,
         608
       ],
       "id": "293ea444-c98c-46c3-ae47-59556fefe6c0",
@@ -193,8 +193,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -992,
-        688
+        -960,
+        680
       ],
       "id": "61d30ae8-ab78-47b2-b554-5172cdc901b4",
       "name": "Get Saved Keywords"
@@ -206,8 +206,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -768,
-        688
+        -736,
+        680
       ],
       "id": "1278a09b-f115-42a5-bd31-afc14b2c55a5",
       "name": "Extract Keywords"
@@ -217,73 +217,11 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        -1216,
-        688
+        -1184,
+        680
       ],
       "id": "ddcc9680-4798-4520-b720-25a6003a6429",
       "name": "Merge"
-    },
-    {
-      "parameters": {
-        "resource": "databasePage",
-        "databaseId": {
-          "__rl": true,
-          "value": "={{ $env.NOTION_DB_URL }}",
-          "mode": "url"
-        },
-        "title": "=Fetch NO. {{ $('Schedule Trigger').item.json['Readable date'] }}",
-        "propertiesUi": {
-          "propertyValues": [
-            {
-              "key": "Title|title",
-              "title": "={{ $('Loop Over Items2').item.json.title }}"
-            },
-            {
-              "key": "Score|number",
-              "numberValue": "={{ $('Parse AI Response').item.json.score }}"
-            },
-            {
-              "key": "URL|url",
-              "urlValue": "={{ $('Loop Over Items2').item.json.applylink }}"
-            },
-            {
-              "key": "Date|date",
-              "date": "={{ $('Schedule Trigger').item.json.timestamp }}"
-            },
-            {
-              "key": "Cover Letter|rich_text",
-              "textContent": "={{ $('Parse AI Response').item.json.coverLetter }}"
-            },
-            {
-              "key": "Website|rich_text",
-              "textContent": "={{ $('Loop Over Items2').item.json.website }}"
-            },
-            {
-              "key": "Company|rich_text",
-              "textContent": "={{ $('Loop Over Items2').item.json.company }}"
-            },
-            {
-              "key": "Location|rich_text",
-              "textContent": "={{ $('Loop Over Items2').item.json.location }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.notion",
-      "typeVersion": 2.2,
-      "position": [
-        1696,
-        752
-      ],
-      "id": "b2f3aa38-45a2-4b17-8fe1-b6f654849789",
-      "name": "Create a database page",
-      "credentials": {
-        "notionApi": {
-          "id": "9PknBjmF6BGHvFNE",
-          "name": "Notion account"
-        }
-      }
     },
     {
       "parameters": {
@@ -297,7 +235,7 @@
       "typeVersion": 1.3,
       "position": [
         -3648,
-        688
+        680
       ],
       "id": "1b3124d3-0119-4b71-8421-0abc3e695b70",
       "name": "Schedule Trigger"
@@ -310,8 +248,8 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        -320,
-        688
+        -288,
+        680
       ],
       "id": "eddf103a-4e7a-4fbf-b460-de4b4fcf2b34",
       "name": "Merge2"
@@ -324,8 +262,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -96,
-        688
+        -64,
+        680
       ],
       "id": "1a8f8f70-cf65-4ea7-a57d-7dc3c8ee81eb",
       "name": "Get Pending Jobs"
@@ -339,8 +277,8 @@
       "name": "Split Out1",
       "type": "n8n-nodes-base.splitOut",
       "position": [
-        128,
-        688
+        160,
+        680
       ],
       "typeVersion": 1
     },
@@ -354,8 +292,8 @@
       "name": "Loop Over Items2",
       "type": "n8n-nodes-base.splitInBatches",
       "position": [
-        352,
-        688
+        384,
+        680
       ],
       "typeVersion": 3
     },
@@ -377,7 +315,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1248,
+        1280,
         608
       ],
       "id": "c1fa7fa3-fbb6-4ec1-8c19-2822697d442a",
@@ -390,7 +328,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1024,
+        1056,
         608
       ],
       "id": "d60226fd-d0c6-4f85-b3db-adc49a59a9f1",
@@ -402,7 +340,7 @@
       "name": "Wait2",
       "type": "n8n-nodes-base.wait",
       "position": [
-        576,
+        608,
         608
       ],
       "webhookId": "c9cb4878-ae4d-4b8e-bd37-5395011f7761",
@@ -417,7 +355,7 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        800,
+        832,
         416
       ],
       "id": "56ddad98-3dfb-4ba6-9be1-eed6c2b2c7c4",
@@ -435,7 +373,7 @@
       "type": "n8n-nodes-base.limit",
       "typeVersion": 1,
       "position": [
-        576,
+        608,
         416
       ],
       "id": "846f561a-e6d2-41b4-8d71-88a8ca521ef5",
@@ -476,11 +414,14 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        800,
+        832,
         608
       ],
       "id": "b4e70914-ba57-44ee-8573-41e3a28e7c8e",
-      "name": "AI: Scoring + Cover Letter"
+      "name": "AI: Scoring + Cover Letter",
+      "retryOnFail": false,
+      "maxTries": 5,
+      "notesInFlow": false
     },
     {
       "parameters": {
@@ -506,8 +447,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        -544,
-        784
+        -512,
+        776
       ],
       "name": "Call LinkedIn Scraping Sub-Workflow",
       "id": "34dd7a46-80f7-4c09-b7d0-a72414e69ee0"
@@ -550,8 +491,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        -544,
-        592
+        -512,
+        584
       ],
       "name": "Call RemoteOK Scraping Sub-Workflow",
       "id": "038b3b83-c0dc-4033-9203-3766aa9e9e37"
@@ -591,7 +532,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -1888,
+        -1856,
         608
       ],
       "id": "cbf14e42-4a4c-484c-a38e-d5ad526f0468",
@@ -604,11 +545,139 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2112,
+        -2080,
         608
       ],
       "id": "021e61e8-666d-4479-8b4f-ac863547c5b7",
       "name": "Build AI Prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-api:8001/api/jobs/filtered",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "={{ $('Loop Over Items2').item.json.id }}"
+            },
+            {
+              "name": "title",
+              "value": "={{ $('Loop Over Items2').item.json.title }}"
+            },
+            {
+              "name": "company",
+              "value": "={{ $('Loop Over Items2').item.json.company }}"
+            },
+            {
+              "name": "location",
+              "value": "={{ $('Loop Over Items2').item.json.location }}"
+            },
+            {
+              "name": "applylink",
+              "value": "={{ $('Loop Over Items2').item.json.applylink }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $('Loop Over Items2').item.json.description }}"
+            },
+            {
+              "name": "website",
+              "value": "LinkedIn"
+            },
+            {
+              "name": "easy_apply",
+              "value": "={{ $('Loop Over Items2').item.json.easy_apply }}"
+            },
+            {
+              "name": "score",
+              "value": "={{ $('Parse AI Response').item.json.score }}"
+            },
+            {
+              "name": "cover_letter",
+              "value": "={{ $('Parse AI Response').item.json.coverLetter }}"
+            },
+            {
+              "name": "ai_status",
+              "value": "fit"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1728,
+        680
+      ],
+      "id": "530ec07e-c062-4181-8d02-3430d7b6c1ca",
+      "name": "Add Job to Filtered Jobs"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-api:8001/api/jobs/filtered",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "={{ $('Loop Over Items2').item.json.id }}"
+            },
+            {
+              "name": "title",
+              "value": "={{ $('Loop Over Items2').item.json.title }}"
+            },
+            {
+              "name": "company",
+              "value": "={{ $('Loop Over Items2').item.json.company }}"
+            },
+            {
+              "name": "location",
+              "value": "={{ $('Loop Over Items2').item.json.location }}"
+            },
+            {
+              "name": "applylink",
+              "value": "={{ $('Loop Over Items2').item.json.applylink }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $('Loop Over Items2').item.json.description }}"
+            },
+            {
+              "name": "website",
+              "value": "LinkedIn"
+            },
+            {
+              "name": "easy_apply",
+              "value": "={{ $('Loop Over Items2').item.json.easy_apply }}"
+            },
+            {
+              "name": "score",
+              "value": "={{ $('Parse AI Response').item.json.score }}"
+            },
+            {
+              "name": "cover_letter",
+              "value": "={{ $('Parse AI Response').item.json.coverLetter }}"
+            },
+            {
+              "name": "ai_status",
+              "value": "not_fit"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1728,
+        872
+      ],
+      "id": "3c301e5f-fc0c-480d-9582-8ec2e55a1461",
+      "name": "Add Job to Filtered Jobs1"
     }
   ],
   "pinData": {},
@@ -617,14 +686,14 @@
       "main": [
         [
           {
-            "node": "Create a database page",
+            "node": "Add Job to Filtered Jobs",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Loop Over Items2",
+            "node": "Add Job to Filtered Jobs1",
             "type": "main",
             "index": 0
           }
@@ -769,17 +838,6 @@
         [
           {
             "node": "Read CV",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create a database page": {
-      "main": [
-        [
-          {
-            "node": "Loop Over Items2",
             "type": "main",
             "index": 0
           }
@@ -940,6 +998,28 @@
           }
         ]
       ]
+    },
+    "Add Job to Filtered Jobs": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Job to Filtered Jobs1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -948,7 +1028,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "f94e9c24-c467-4711-859e-05991f1a7281",
+  "versionId": "9d3a34c1-2a46-4230-b4bd-ba604ef8a6cf",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "6f07661684dfc4d1e6e6b7510d0c2f6c7ed427caa9513d3f8978a8a16bf5ddf9"

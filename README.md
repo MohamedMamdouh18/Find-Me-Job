@@ -1,6 +1,6 @@
 # Find Me a Job - AI-Powered Job Scraper & Matcher
 
-An automated job scraping and AI matching pipeline that runs on a schedule, scrapes jobs from **LinkedIn** and **RemoteOK**, prevents fetching the same job twice, scores each one against your CV using an LLM, generates a cover letter for good matches, saves results to a **Notion database**, and sends you a **Telegram notification** when the workflow finishes - all running locally in Docker.
+An automated job scraping and AI matching pipeline that runs on a schedule, scrapes jobs from **LinkedIn** and **RemoteOK**, prevents fetching the same job twice, scores each one against your CV using an LLM, generates a cover letter for good matches, stores matched jobs in a **local SQLite-backed dashboard** (filtered_jobs table), and sends you a **Telegram notification** when the workflow finishes - all running locally in Docker.
 
 ![n8n Main Workflow](assets/n8n-main-workflow.png)
 
@@ -13,13 +13,11 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 ## Table of Contents
 
 - [Features](#features)
-- [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
   - [Environment Variables](#environment-variables-env)
   - [LinkedIn Search Config](#linkedin-search-config)
   - [LLM Keywords Config](#llm-keywords-config)
-- [Notion Setup](#notion-setup)
 - [AI Scoring Logic](#ai-scoring-logic)
 - [Choosing an LLM Provider](#choosing-an-llm-provider)
 - [Database Schema](#database-schema)
@@ -41,8 +39,8 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - **AI scoring** - scores each job 0–100 based on your CV, required skills, and years of experience
 - **Smart experience matching** - small experience gaps (1–2 years) don't heavily penalize the score
 - **Cover letter generation** - only generated for jobs scoring above the threshold, saving tokens
-- **Configurable score threshold** - set `FILTERING_SCORE` in your `.env` to control the minimum score for Notion entries and cover letter generation
-- **Notion integration** - matched jobs automatically appear in your Notion database with title, company, country, score, URL, cover letter, and source
+- **Configurable score threshold** - set `FILTERING_SCORE` in your `.env` to control the minimum score for matched jobs and cover letter generation
+- **Local job dashboard** - matched jobs are stored in the `filtered_jobs` table with score, cover letter, AI status, and user-trackable status (`new` / `applied` / `wont_apply`), served via the API for a localhost dashboard
 - **Telegram notification** - sends you a message when the workflow finishes each run
 - **Configurable search** - all LinkedIn search parameters controlled via a plain text JSON config file, no code changes needed
 - **LLM-powered keyword extraction** - automatically extracts relevant job titles and skills from your CV to filter RemoteOK results
@@ -55,66 +53,12 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 
 ---
 
-## Project Structure
-
-```
-find-me-job/
-├── docker-compose.yml
-├── .env                                      # Your secrets (never commit this)
-├── .env.example                              # Template for environment variables
-├── cv.docx                                   # Your CV/resume
-├── cv.docx.example                           # Placeholder example
-├── n8n/
-│   ├── Dockerfile                            # Custom n8n image with auto-import
-│   └── docker-entrypoint.sh                  # Imports workflows on first start
-├── workflows/
-│   ├── Scraping Main Workflow.json           # Main orchestration workflow
-│   ├── LinkedIn Scraping Sub-Workflow.json   # LinkedIn scraping sub-workflow
-│   └── RemoteOK Scraping Sub-Workflow.json   # RemoteOK scraping sub-workflow
-├── params/
-│   ├── linkedin_searches.txt                 # LinkedIn search config (JSON with multiple searches)
-│   └── llm_keywords_extract.txt              # LLM prompt for CV keyword extraction
-├── python-api/
-│   ├── Dockerfile                            # Python API image
-│   ├── alembic.ini                           # Alembic configuration
-│   ├── requirements.txt
-│   └── src/
-│       ├── main.py                           # FastAPI app with lifespan startup and scheduled jobs
-│       ├── shared.py                         # Constants and timezone helpers
-│       ├── database/
-│       │   ├── core.py                       # Engine, session, migrations, and cleanup
-│       │   ├── models/
-│       │   │   ├── base_model.py             # SQLModel base class
-│       │   │   ├── cv_keywords.py
-│       │   │   ├── pending_job.py
-│       │   │   └── seen_job.py
-│       │   ├── migrations/
-│       │   │   ├── env.py                    # Alembic environment config
-│       │   │   ├── script.py.mako            # Migration template
-│       │   │   └── versions/                 # Auto-generated migration scripts
-│       │   └── repositories/
-│       │       ├── cv_keywords.py
-│       │       ├── pending_jobs.py
-│       │       └── seen_jobs.py
-│       └── routes/
-│           ├── cv_route.py                   # CV text extraction and keyword cache
-│           ├── jobs_route.py                 # Job exists, pending, complete
-│           └── params_route.py               # Config file reader
-└── data/
-    ├── db/
-    │   └── jobs.db                           # SQLite database
-    └── n8n/                                  # n8n internal data and workflow state
-```
-
----
-
 ## Getting Started
 
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
 - An LLM API key from any OpenAI-compatible provider (e.g., [Groq](https://console.groq.com), [Google AI Studio](https://aistudio.google.com), [OpenRouter](https://openrouter.ai)) - see [Choosing an LLM Provider](#choosing-an-llm-provider)
-- A [Notion](https://notion.so) account - free
 - A [Telegram Bot](https://t.me/BotFather) - optional, for run notifications
 - Your CV as a `.docx` file
 
@@ -159,12 +103,8 @@ On first start, the custom n8n image automatically imports all workflows from th
 
 1. Open n8n at [http://localhost:5678](http://localhost:5678)
 2. The workflows are already imported and ready to use
-3. Update the Notion credentials and database ID in the Notion node (can also be accessed via `$env.NOTION_TOKEN` and `$env.NOTION_DB_URL`)
-4. The LLM API key, URL, and model are read automatically from your `.env`
-
-### 7. Set up Notion
-
-Follow the [Notion Setup](#notion-setup) section, then activate the workflow and run it.
+3. The LLM API key, URL, and model are read automatically from your `.env`
+4. For Telegram notifications, add a Telegram credential with `{{ $env.TELEGRAM_BOT_TOKEN }}`
 
 ---
 
@@ -195,14 +135,8 @@ LLM_API_KEY=your_api_key_here
 LLM_URL=https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
 # Model name supported by your chosen provider
 LLM_MODEL=gemini-2.5-flash
-# Minimum score (0–100) for a job to be saved to Notion (default: 60)
+# Minimum score (0–100) for a job to be saved to filtered_jobs (default: 60)
 FILTERING_SCORE=60
-
-# ── Notion ───────────────────────────────────────────
-# Get from https://www.notion.so/my-integrations
-NOTION_TOKEN=ntn_xxxxxxxxxxxxxxxxxxxx
-# The URL of your Notion database
-NOTION_DB_URL=https://www.notion.so/xxxxxxxxxxxx?v=xxxxxxxxxxxxxxxxxxxx
 
 # ── Telegram (optional) ──────────────────────────────
 # Your personal Telegram user ID (get from @get_id_bot)
@@ -265,54 +199,6 @@ The prompt asks the LLM to return a JSON object with:
 You can customize the prompt to target different roles or skill areas.
 
 The extracted keywords are cached in the `cv_keywords` table along with a hash of your CV. On each run, the workflow compares the current CV hash to the stored one. If you update your `cv.docx`, the system detects the change automatically and re-extracts keywords. If the CV hasn't changed, it reuses the cached keywords without calling the LLM.
-
----
-
-## Notion Setup
-
-### 1. Create a Notion Integration
-
-1. Go to [https://www.notion.so/my-integrations](https://www.notion.so/my-integrations)
-2. Click **New integration**
-3. Give it a name (e.g. "Job Scraper")
-4. Copy the **Internal Integration Secret** → this is your `NOTION_TOKEN`
-
-### 2. Create a Notion Database
-
-Create a new full-page database in Notion with these exact properties:
-
-| Property Name | Type |
-|---------------|------|
-| `Title` | Title |
-| `Company` | Text |
-| `Country` | Text |
-| `Score` | Number |
-| `URL` | URL |
-| `Cover Letter` | Text |
-| `Website` | Text |
-| `Date` | Date |
-
-> **Important:** Property names are case-sensitive and must match exactly as shown.
-
-### 3. Share the database with your integration
-
-Open the integration you created, go to the **Content access** tab, and add the database page you just created.
-
-### 4. Get the Database URL
-
-Open the database page in your browser - the URL in the address bar is your `NOTION_DB_URL`. Copy the full URL and paste it into your `.env` file.
-
-![Notion Database](assets/notion-database.png)
-
-### 5. Add credentials to n8n
-
-In n8n, go to **Settings** → **Credentials** → **Add Credential** → **Notion API** → paste `{{ $env.NOTION_TOKEN }}` as the API key.
-
-![n8n Notion Credential Setup](assets/n8n-notion-account-setup.png)
-
-For Telegram, add a Telegram credential with `{{ $env.TELEGRAM_BOT_TOKEN }}`.
-
-![Telegram Notification](assets/telegram-bot.png)
 
 ---
 
@@ -388,7 +274,26 @@ CREATE TABLE pending_jobs (
   applylink   TEXT,
   description TEXT,
   website     TEXT,             -- "linkedin" or "remoteok"
+  easy_apply  BOOLEAN DEFAULT FALSE,
   created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Jobs scored by the LLM, displayed in the local dashboard
+CREATE TABLE filtered_jobs (
+  id           TEXT PRIMARY KEY,
+  title        TEXT,
+  company      TEXT,
+  location     TEXT,
+  applylink    TEXT,
+  description  TEXT,
+  website      TEXT,
+  score        INTEGER,           -- 0–100 AI match score
+  cover_letter TEXT,              -- generated cover letter (nullable)
+  easy_apply   BOOLEAN DEFAULT FALSE,
+  ai_status    TEXT,              -- "fit" or "not_fit"
+  user_status  TEXT DEFAULT 'new', -- "new", "applied", or "wont_apply"
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- CV hash and extracted keyword cache
@@ -419,6 +324,9 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 | `GET` | `/api/jobs/exists` | `?jobid=linkedin_123` | Returns `{"exists": true/false}` |
 | `POST` | `/api/jobs/pending` | JSON body | Insert a new job into pending_jobs |
 | `GET` | `/api/jobs/pending` | - | List all pending jobs |
+| `POST` | `/api/jobs/filtered` | JSON body | Move job from pending → filtered_jobs with score and cover letter |
+| `GET` | `/api/jobs/filtered/{jobid}` | - | Get a single filtered job by ID |
+| `PATCH` | `/api/jobs/filtered/{jobid}/status` | `{"user_status": "applied"}` | Update user tracking status (`new` / `applied` / `wont_apply`) |
 | `POST` | `/api/jobs/job/complete` | `?jobid=linkedin_123` | Move job from pending_jobs → seen_jobs |
 
 **CV** (`/api/cv`):
@@ -446,7 +354,26 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
   "location": "Cairo, Egypt",
   "applylink": "https://linkedin.com/jobs/view/xxxxxxxx",
   "description": "We are looking for a software engineer...",
-  "website": "linkedin"
+  "website": "linkedin",
+  "easy_apply": false
+}
+```
+
+### `/api/jobs/filtered` request body
+
+```json
+{
+  "id": "linkedin_xxxxxxxx",
+  "title": "Software Engineer",
+  "company": "X Corp",
+  "location": "Cairo, Egypt",
+  "applylink": "https://linkedin.com/jobs/view/xxxxxxxx",
+  "description": "We are looking for a software engineer...",
+  "website": "linkedin",
+  "score": 82,
+  "cover_letter": "I am excited to apply for...",
+  "easy_apply": false,
+  "ai_status": "fit"
 }
 ```
 
@@ -526,7 +453,7 @@ The API uses SQLite WAL mode with a 30-second busy timeout to prevent this. If i
 docker restart find-me-job-python-api
 ```
 
-**Jobs not appearing in Notion**
+**Jobs not appearing in filtered_jobs**
 Jobs scoring below `FILTERING_SCORE` (default 60) are intentionally skipped. Lower the value in your `.env` if needed. Check the n8n execution log to see the scores being assigned.
 
 **Telegram notification not sending**
