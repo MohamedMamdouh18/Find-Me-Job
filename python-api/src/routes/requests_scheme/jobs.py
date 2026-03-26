@@ -2,6 +2,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from ...database.models.enums import AiStatus, UserStatus
+
 
 class PendingJobRequest(BaseModel):
     id: str
@@ -25,8 +27,8 @@ class FilteredJobRequest(BaseModel):
     score: int
     cover_letter: Optional[str] = None
     easy_apply: bool = False
-    ai_status: str  # fit | not_fit
+    ai_status: AiStatus
 
 
 class StatusUpdate(BaseModel):
-    user_status: str  # new | applied | wont_apply
+    user_status: UserStatus

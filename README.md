@@ -1,6 +1,6 @@
 # Find Me a Job - AI-Powered Job Scraper & Matcher
 
-An automated job scraping and AI matching pipeline that runs on a schedule, scrapes jobs from **LinkedIn** and **RemoteOK**, prevents fetching the same job twice, scores each one against your CV using an LLM, generates a cover letter for good matches, stores matched jobs in a **local SQLite-backed dashboard** (filtered_jobs table), and sends you a **Telegram notification** when the workflow finishes - all running locally in Docker.
+An automated job scraping and AI matching pipeline that runs on a schedule, scrapes jobs from **LinkedIn** and **RemoteOK**, prevents fetching the same job twice, scores each one against your CV using an LLM, generates a cover letter for good matches, stores matched jobs in a **local SQLite database**, and serves them through a **Streamlit dashboard** with analytics, filtering, and job management - plus optional **Telegram notifications** when each run finishes. Everything runs locally in Docker.
 
 ![n8n Main Workflow](assets/n8n-main-workflow.png)
 
@@ -23,9 +23,9 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - [Database Schema](#database-schema)
 - [Python API Reference](#python-api-reference)
 - [Estimated token usage per job](#estimated-token-usage-per-job)
+- [Dashboard](#dashboard)
 - [Docker Services](#docker-services)
 - [Download Size](#disk-footprint)
-- [Troubleshooting](#troubleshooting)
 - [License](#license)
 
 ---
@@ -40,7 +40,10 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - **Smart experience matching** - small experience gaps (1–2 years) don't heavily penalize the score
 - **Cover letter generation** - only generated for jobs scoring above the threshold, saving tokens
 - **Configurable score threshold** - set `FILTERING_SCORE` in your `.env` to control the minimum score for matched jobs and cover letter generation
-- **Local job dashboard** - matched jobs are stored in the `filtered_jobs` table with score, cover letter, AI status, and user-trackable status (`new` / `applied` / `wont_apply`), served via the API for a localhost dashboard
+- **Local Streamlit dashboard** - a built-in web dashboard at `localhost:8501` with two tabs:
+  - **Analytics** - stat cards (total, fit, not fit, applied, avg score), donut charts for AI/user status distribution, and a bar chart showing daily applications over the last 7 days
+  - **Jobs** - searchable, sortable, filterable table with inline job cards, status management (applied / won't apply / reset), and one-click delete
+- **Advanced job filtering** - filter by AI status, user status, easy apply, min score, company, and website; search by title or company; sort by any column
 - **Telegram notification** - sends you a message when the workflow finishes each run
 - **Configurable search** - all LinkedIn search parameters controlled via a plain text JSON config file, no code changes needed
 - **LLM-powered keyword extraction** - automatically extracts relevant job titles and skills from your CV to filter RemoteOK results
@@ -105,6 +108,10 @@ On first start, the custom n8n image automatically imports all workflows from th
 2. The workflows are already imported and ready to use
 3. The LLM API key, URL, and model are read automatically from your `.env`
 4. For Telegram notifications, add a Telegram credential with `{{ $env.TELEGRAM_BOT_TOKEN }}`
+
+### 7. Open the dashboard
+
+Once jobs start flowing in, open the dashboard at [http://localhost:8501](http://localhost:8501) to browse results, track applications, and view analytics.
 
 ---
 
@@ -311,6 +318,30 @@ Schema is managed by **Alembic migrations**, applied automatically on each conta
 
 ---
 
+## Dashboard
+
+The project includes a **Streamlit dashboard** at [http://localhost:8501](http://localhost:8501) for browsing and managing your matched jobs.
+
+### Analytics Tab
+
+- **Stat cards** - total jobs, fit, not fit, new, applied, won't apply, and average score
+- **AI Status donut chart** - fit vs not fit distribution
+- **User Status donut chart** - new / applied / won't apply distribution
+- **Daily Applications bar chart** - how many jobs you applied to each day over the last 7 days
+
+### Jobs Tab
+
+- **Search** - filter jobs by title or company name
+- **Filters** - AI status, user status, easy apply, minimum score, company, website
+- **Sortable table** - columns for title, company, location, website, easy apply, apply link, and score
+- **Inline job card** - click any row to open a detail card beside the table with score, badges, description, cover letter, and action buttons
+- **Actions** - mark as applied, won't apply, reset to new, or delete a job entirely
+- **Pagination** - configurable page size (10 / 20 / 50 / 100)
+
+Default filters are set to `ai_status=fit`, `user_status=new`, and `min_score` from your `FILTERING_SCORE` env var so you see the most relevant jobs first.
+
+---
+
 ## Python API Reference
 
 The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From your host use `http://localhost:8001`.
@@ -325,9 +356,14 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 | `POST` | `/api/jobs/pending` | JSON body | Insert a new job into pending_jobs |
 | `GET` | `/api/jobs/pending` | - | List all pending jobs |
 | `POST` | `/api/jobs/filtered` | JSON body | Move job from pending → filtered_jobs with score and cover letter |
+| `GET` | `/api/jobs/filtered` | `?ai_status=fit&user_status=new&min_score=60&search=...&company=...&website=...&sort_by=updated_at&sort_order=desc&page=1&page_size=20` | Paginated, filterable, sortable job list |
+| `GET` | `/api/jobs/filtered/options` | - | Distinct company and website values for filter dropdowns |
 | `GET` | `/api/jobs/filtered/{jobid}` | - | Get a single filtered job by ID |
 | `PATCH` | `/api/jobs/filtered/{jobid}/status` | `{"user_status": "applied"}` | Update user tracking status (`new` / `applied` / `wont_apply`) |
+| `DELETE` | `/api/jobs/filtered/{jobid}` | - | Delete a job from filtered_jobs |
 | `POST` | `/api/jobs/job/complete` | `?jobid=linkedin_123` | Move job from pending_jobs → seen_jobs |
+| `GET` | `/api/jobs/stats` | - | Aggregate counts (total, fit, not_fit, new, applied, wont_apply, avg_score) |
+| `GET` | `/api/jobs/stats/daily-applied` | `?days=7` | Daily application counts for the last N days |
 
 **CV** (`/api/cv`):
 
@@ -397,6 +433,7 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 |---------|-------|------|---------|
 | `n8n` | Custom (built from `n8n/Dockerfile` based on `n8nio/n8n:2.11.4`) | `5678` | Workflow automation engine with auto-import |
 | `find-me-job-python-api` | Custom (built from `python-api/Dockerfile` based on `python:3.12-slim`) | `8001` | FastAPI sidecar (SQLModel ORM, Alembic migrations) for DB, CV, and params |
+| `find-me-job-dashboard` | Custom (built from `dashboard/Dockerfile` based on `python:3.12-slim`) | `8501` | Streamlit dashboard for analytics and job management |
 
 The n8n service uses a custom Docker image that automatically imports workflows from the `workflows/` directory on first start. Subsequent starts skip the import to preserve any manual changes made within n8n.
 
@@ -418,6 +455,9 @@ docker compose logs -f python-api
 # Restart Python API after editing main.py
 docker restart find-me-job-python-api
 
+# View dashboard logs
+docker compose logs -f dashboard
+
 # Stop everything
 docker compose down
 
@@ -436,44 +476,12 @@ Estimated download size on first `docker compose up -d`:
 
 | Component | Download Size |
 |-----------|---------------|
-| n8n Docker image (`n8nio/n8n:2.11.4`) | ~274 MB |
-| Python base image (`python:3.12-slim`) | ~43 MB |
-| Python pip dependencies | ~5 MB |
-| **Total download** | **~320 MB** |
+| n8n Docker image (`n8nio/n8n:2.11.4`) | ~300 MB |
+| Python base image (`python:3.12-slim`) (shared by API + dashboard) | ~50 MB |
+| Dashboard pip dependencies (Streamlit, Plotly) | ~50 MB |
+| **Total download** | **~400 MB** |
 
 The SQLite database and n8n internal data (in `data/`) grow over time but typically stay under a few MB.
-
----
-
-## Troubleshooting
-
-**`database is locked` error**
-The API uses SQLite WAL mode with a 30-second busy timeout to prevent this. If it still occurs, restart the container:
-```bash
-docker restart find-me-job-python-api
-```
-
-**Jobs not appearing in filtered_jobs**
-Jobs scoring below `FILTERING_SCORE` (default 60) are intentionally skipped. Lower the value in your `.env` if needed. Check the n8n execution log to see the scores being assigned.
-
-**Telegram notification not sending**
-- `TELEGRAM_ID` must be your numeric user ID, not your username - get it from [@get_id_bot](https://t.me/get_id_bot)
-- You must start a conversation with your bot at least once before it can message you
-
-**n8n can't reach the Python API**
-- Make sure both containers are running: `docker compose ps`
-- From inside n8n, the API URL is `http://python-api:8001`, not `localhost`
-- Check Python API logs for startup errors: `docker compose logs python-api`
-
-**LinkedIn returning empty results**
-- LinkedIn may temporarily block scraping if too many requests are made. The workflow includes built-in delays, but if you see empty results, wait a few hours before retrying.
-- Verify your search parameters in `params/linkedin_searches.txt` return results when searched manually on LinkedIn.
-
-**Workflows not appearing in n8n**
-- Workflows are auto-imported only on the first container start. If you need to re-import, delete the marker file and restart:
-  ```bash
-  docker exec n8n rm /home/node/.n8n/.imported && docker restart n8n
-  ```
 
 ---
 

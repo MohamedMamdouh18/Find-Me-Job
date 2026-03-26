@@ -30,3 +30,16 @@ services:
       - ./params:/data/params
     ports:
       - "8001:8001"
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: find-me-job-dashboard
+    restart: on-failure
+    environment:
+      - FILTERING_SCORE=${FILTERING_SCORE:-60}
+    ports:
+      - "8501:8501"
+    depends_on:
+      - python-api
