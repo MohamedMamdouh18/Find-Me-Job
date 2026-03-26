@@ -4,7 +4,7 @@ services:
       context: ./n8n
       dockerfile: Dockerfile
     container_name: n8n
-    restart: on-failure
+    restart: unless-stopped
     ports:
       - "5678:5678"
     env_file: .env
@@ -20,26 +20,38 @@ services:
       context: ./python-api
       dockerfile: Dockerfile
     container_name: find-me-job-python-api
-    restart: on-failure
+    restart: unless-stopped
     environment:
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
       - DELETE_OLD_JOBS_DAYS=${DELETE_OLD_JOBS_DAYS}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ID=${TELEGRAM_ID}
     volumes:
       - ./data/db:/data/db
       - ./cv.docx:/data/cv.docx
       - ./params:/data/params
     ports:
       - "8001:8001"
+    depends_on:
+      - cloudflared
 
   dashboard:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
     container_name: find-me-job-dashboard
-    restart: on-failure
+    restart: unless-stopped
     environment:
       - FILTERING_SCORE=${FILTERING_SCORE:-60}
     ports:
       - "8501:8501"
     depends_on:
       - python-api
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.3.0
+    container_name: find-me-job-tunnel
+    restart: unless-stopped
+    command: tunnel --url http://dashboard:8501
+    ports:
+      - "20241:20241"
