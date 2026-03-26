@@ -44,7 +44,8 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
   - **Analytics** - stat cards (total, fit, not fit, applied, avg score), donut charts for AI/user status distribution, and a bar chart showing daily applications over the last 7 days
   - **Jobs** - searchable, sortable, filterable table with inline job cards, status management (applied / won't apply / reset), and one-click delete
 - **Advanced job filtering** - filter by AI status, user status, easy apply, min score, company, and website; search by title or company; sort by any column
-- **Telegram notification** - sends you a message when the workflow finishes each run
+- **Cloudflare Quick Tunnel** - a `cloudflared` container automatically creates a public URL for the dashboard (no account needed), so you can access it from anywhere
+- **Telegram notifications** - sends the dashboard's public tunnel URL to Telegram every time the service starts, plus a notification when each n8n workflow run finishes
 - **Configurable search** - all LinkedIn search parameters controlled via a plain text JSON config file, no code changes needed
 - **LLM-powered keyword extraction** - automatically extracts relevant job titles and skills from your CV to filter RemoteOK results
 - **CV change detection** - the workflow hashes your CV on each run and compares it to the stored hash; keywords are only re-extracted when the CV actually changes, saving LLM tokens
@@ -112,6 +113,8 @@ On first start, the custom n8n image automatically imports all workflows from th
 ### 7. Open the dashboard
 
 Once jobs start flowing in, open the dashboard at [http://localhost:8501](http://localhost:8501) to browse results, track applications, and view analytics.
+
+A **Cloudflare Quick Tunnel** is created automatically on startup, giving you a public `https://xxx.trycloudflare.com` URL. The URL is sent to your Telegram (if configured) so you can access the dashboard from any device without port forwarding.
 
 ---
 
@@ -434,6 +437,7 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 | `n8n` | Custom (built from `n8n/Dockerfile` based on `n8nio/n8n:2.11.4`) | `5678` | Workflow automation engine with auto-import |
 | `find-me-job-python-api` | Custom (built from `python-api/Dockerfile` based on `python:3.12-slim`) | `8001` | FastAPI sidecar (SQLModel ORM, Alembic migrations) for DB, CV, and params |
 | `find-me-job-dashboard` | Custom (built from `dashboard/Dockerfile` based on `python:3.12-slim`) | `8501` | Streamlit dashboard for analytics and job management |
+| `find-me-job-tunnel` | `cloudflare/cloudflared:2026.3.0` | `20241` | Cloudflare Quick Tunnel — exposes the dashboard via a public `trycloudflare.com` URL |
 
 The n8n service uses a custom Docker image that automatically imports workflows from the `workflows/` directory on first start. Subsequent starts skip the import to preserve any manual changes made within n8n.
 
@@ -479,7 +483,8 @@ Estimated download size on first `docker compose up -d`:
 | n8n Docker image (`n8nio/n8n:2.11.4`) | ~300 MB |
 | Python base image (`python:3.12-slim`) (shared by API + dashboard) | ~50 MB |
 | Dashboard pip dependencies (Streamlit, Plotly) | ~50 MB |
-| **Total download** | **~400 MB** |
+| Cloudflared image (`cloudflare/cloudflared:2026.3.0`) | ~30 MB |
+| **Total download** | **~430 MB** |
 
 The SQLite database and n8n internal data (in `data/`) grow over time but typically stay under a few MB.
 
