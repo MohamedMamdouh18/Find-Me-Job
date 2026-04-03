@@ -39,13 +39,14 @@ def render_analytics():
         fig = go.Figure(
             data=[
                 go.Pie(
-                    labels=["New", "Applied", "Won't Apply"],
+                    labels=["New", "Applied", "Won't Apply", "Email Sent"],
                     values=[
                         stats.get("new", 0),
                         stats.get("applied", 0),
                         stats.get("wont_apply", 0),
+                        stats.get("email_sent", 0),
                     ],
-                    marker_colors=["#60a5fa", "#4ade80", "#fb923c"],
+                    marker_colors=["#60a5fa", "#4ade80", "#fb923c", "#22d3ee"],
                     hole=0.7,
                 )
             ]
@@ -73,6 +74,7 @@ def render_analytics():
         fig.update_layout(
             title="Applications — Last 7 Days",
             xaxis_title="Day",
+            xaxis_type="category",
             yaxis_title="Applied",
             yaxis=dict(dtick=1),
             **CHART_LAYOUT,

@@ -24,7 +24,7 @@ def render_jobs_filters() -> dict:
     with f1:
         ai_status_raw = st.selectbox("AI Status", ["all", "fit", "not_fit"], index=1)
     with f2:
-        user_status_raw = st.selectbox("User Status", ["all", "new", "applied", "wont_apply"], index=1)
+        user_status_raw = st.selectbox("User Status", ["all", "new", "applied", "wont_apply", "email_sent"], index=1)
     with f3:
         easy_apply_raw = st.selectbox("Easy Apply", ["all", "yes", "no"])
     with f4:

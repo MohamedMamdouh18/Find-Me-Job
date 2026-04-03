@@ -69,6 +69,9 @@ class FilteredJobRepository:
                 func.sum(
                     case((user_status_col == UserStatus.WONT_APPLY.value, 1), else_=0)
                 ).label("wont_apply"),
+                func.sum(
+                    case((user_status_col == UserStatus.EMAIL_SENT.value, 1), else_=0)
+                ).label("email_sent"),
                 func.avg(FilteredJob.score).label("avg_score"),
             )
         ).one()
@@ -80,6 +83,7 @@ class FilteredJobRepository:
             "new": stats.new or 0,
             "applied": stats.applied or 0,
             "wont_apply": stats.wont_apply or 0,
+            "email_sent": stats.email_sent or 0,
             "avg_score": round(stats.avg_score) if stats.avg_score else 0,
         }
 
@@ -89,7 +93,7 @@ class FilteredJobRepository:
         updated_at_col = FilteredJob.__table__.c.updated_at  # type: ignore[attr-defined]
         user_status_col = FilteredJob.__table__.c.user_status  # type: ignore[attr-defined]
 
-        day_label = func.strftime("%Y-%m-%d", updated_at_col).label("day")
+        day_label = func.substr(updated_at_col, 1, 10).label("day")
 
         statement = (
             select(  # type: ignore[call-overload]
@@ -97,7 +101,7 @@ class FilteredJobRepository:
                 func.count().label("applied"),
             )
             .where(updated_at_col >= str(cutoff))
-            .where(user_status_col == UserStatus.APPLIED.value)
+            .where(user_status_col.in_([UserStatus.APPLIED.value, UserStatus.EMAIL_SENT.value]))
             .group_by(day_label)
             .order_by(day_label.asc())
         )

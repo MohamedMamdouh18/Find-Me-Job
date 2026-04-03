@@ -15,6 +15,7 @@ def get_stats() -> dict:
             "new": 0,
             "applied": 0,
             "wont_apply": 0,
+            "email_sent": 0,
             "avg_score": 0,
         }
 

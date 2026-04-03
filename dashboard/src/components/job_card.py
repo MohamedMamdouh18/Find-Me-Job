@@ -27,6 +27,8 @@ def render_job_card(job: dict):
         if user_status == "applied"
         else "badge-wont"
         if user_status == "wont_apply"
+        else "badge-email_sent"
+        if user_status == "email_sent"
         else "badge-new"
     )
     us_badge = _badge(user_status, us_badge_class)
@@ -65,7 +67,7 @@ def render_job_card(job: dict):
                 unsafe_allow_html=True,
             )
 
-            if user_status != "applied":
+            if user_status not in ("applied", "email_sent"):
                 if st.button("✅ Applied", key=f"applied_{job_id}", use_container_width=True):
                     update_job_status(job_id, "applied")
                     st.rerun()
@@ -75,12 +77,14 @@ def render_job_card(job: dict):
                     update_job_status(job_id, "wont_apply")
                     st.rerun()
 
-            if user_status in ("wont_apply", "applied"):
+            if user_status in ("wont_apply", "applied", "email_sent"):
                 if st.button("↩ Reset to New", key=f"reset_{job_id}", use_container_width=True):
                     update_job_status(job_id, "new")
                     st.rerun()
 
-            if st.button("🗑 Delete", key=f"delete_{job_id}", use_container_width=True, type="primary"):
+            if st.button(
+                "🗑 Delete", key=f"delete_{job_id}", use_container_width=True, type="primary"
+            ):
                 delete_job(job_id)
                 st.session_state.pop("selected_job", None)
                 st.rerun()
@@ -89,11 +93,11 @@ def render_job_card(job: dict):
             with st.expander("📄 Description"):
                 st.write(job["description"])
 
-        if job.get("cover_letter"):
-            with st.expander("✉️ Cover Letter"):
+        if job.get("application_document"):
+            with st.expander("✉️ Application Document"):
                 st.text_area(
-                    "Cover Letter",
-                    job["cover_letter"],
+                    "Application Document",
+                    job["application_document"],
                     height=200,
                     key=f"cl_{job_id}",
                     label_visibility="collapsed",

@@ -20,7 +20,7 @@ class FilteredJob(BaseModel, table=True):
     description: str
     website: str
     score: int = Field(default=0)
-    cover_letter: Optional[str] = None
+    application_document: Optional[str] = None
     easy_apply: bool = Field(default=False)
     ai_status: AiStatus = Field(sa_column=Column(sa.String(), nullable=False))
     user_status: UserStatus = Field(

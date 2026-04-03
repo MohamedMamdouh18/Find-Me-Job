@@ -4,9 +4,10 @@ from fastapi import FastAPI
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from .routes import cv_router, jobs_router, params_router
+from .routes import cv_router, jobs_router, params_router, email_router
 from contextlib import asynccontextmanager
 from .database.core import delete_old_jobs, run_migrations
+from . import shared
 from .shared import detect_tunnel_url_and_send_notification
 
 scheduler = BackgroundScheduler()
@@ -25,6 +26,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # SHUTDOWN
+    if shared.email_service:
+        shared.email_service.quit()
     scheduler.shutdown()
 
 
@@ -33,3 +36,4 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(cv_router)
 app.include_router(jobs_router)
 app.include_router(params_router)
+app.include_router(email_router)

@@ -10,3 +10,4 @@ class UserStatus(str, enum.Enum):
     NEW = "new"
     APPLIED = "applied"
     WONT_APPLY = "wont_apply"
+    EMAIL_SENT = "email_sent"

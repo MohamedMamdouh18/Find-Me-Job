@@ -4,11 +4,31 @@ import os
 import httpx
 import re
 from zoneinfo import ZoneInfo
+from .services.email_service import EmailService
 
 CV_PATH = "/data/cv.docx"
 PARAMS_DIR = "/data/params"
 TIMEZONE = ZoneInfo(os.getenv("GENERIC_TIMEZONE", "UTC"))
 DASHBOARD_URL = ""
+
+EMAIL_SENDER_NAME = os.getenv("SENDER_NAME")
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_APP_PASSWORD = os.getenv("SMTP_APP_PASSWORD")
+
+
+email_service = None
+
+if SMTP_USER and SMTP_APP_PASSWORD:
+    email_service = EmailService(
+        host=SMTP_HOST,
+        port=SMTP_PORT,
+        user=SMTP_USER,
+        password=SMTP_APP_PASSWORD,
+        sender_name=EMAIL_SENDER_NAME,  # type: ignore
+        cv_path=CV_PATH,
+    )
 
 
 async def send_telegram(message: str):

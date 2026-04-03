@@ -25,8 +25,9 @@ class FilteredJobRequest(BaseModel):
     description: str
     website: str
     score: int
-    cover_letter: Optional[str] = None
+    application_document: Optional[str] = None
     easy_apply: bool = False
+    user_status: Optional[UserStatus] = UserStatus.NEW
     ai_status: AiStatus
 
 

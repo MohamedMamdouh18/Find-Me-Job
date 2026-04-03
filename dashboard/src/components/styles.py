@@ -62,12 +62,13 @@ def inject_styles():
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
-    .badge-fit       { background: #14532d; color: #4ade80; }
-    .badge-not_fit   { background: #450a0a; color: #f87171; }
-    .badge-new       { background: #1e3a5f; color: #60a5fa; }
-    .badge-applied   { background: #14532d; color: #4ade80; }
-    .badge-wont      { background: #2a1a00; color: #fb923c; }
-    .badge-easy      { background: #1a1a2e; color: #a78bfa; }
+    .badge-fit        { background: #14532d; color: #4ade80; }
+    .badge-not_fit    { background: #450a0a; color: #f87171; }
+    .badge-new        { background: #1e3a5f; color: #60a5fa; }
+    .badge-applied    { background: #14532d; color: #4ade80; }
+    .badge-wont       { background: #2a1a00; color: #fb923c; }
+    .badge-easy       { background: #1a1a2e; color: #a78bfa; }
+    .badge-email_sent { background: #0c3347; color: #22d3ee; }
 
     div[data-testid="stButton"] button {
         font-family: 'IBM Plex Mono', monospace;

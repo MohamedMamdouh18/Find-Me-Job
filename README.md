@@ -22,7 +22,7 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - [Choosing an LLM Provider](#choosing-an-llm-provider)
 - [Database Schema](#database-schema)
 - [Python API Reference](#python-api-reference)
-- [Estimated token usage per job](#estimated-token-usage-per-job)
+- [Estimated Token Usage Per Job](#estimated-token-usage-per-job)
 - [Dashboard](#dashboard)
 - [Docker Services](#docker-services)
 - [Download Size](#disk-footprint)
@@ -32,28 +32,18 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 
 ## Features
 
-- **Dual source scraping** - LinkedIn (with filters) and RemoteOK
-- **Modular sub-workflows** - LinkedIn and RemoteOK scraping run as separate sub-workflows, called by the main workflow
-- **Multiple LinkedIn searches** - define multiple search queries (different keywords, locations, filters) in a single config file and all are executed in one run
+- **Dual source scraping** - LinkedIn (with filters) and RemoteOK, each as a modular sub-workflow
+- **Multiple LinkedIn searches** - define multiple search queries (different keywords, locations, filters) in a single config file; all are executed in one run
 - **Deduplication** - jobs already seen or pending are skipped automatically across runs
-- **AI scoring** - scores each job 0–100 based on your CV, required skills, and years of experience
-- **Smart experience matching** - small experience gaps (1–2 years) don't heavily penalize the score
-- **Cover letter generation** - only generated for jobs scoring above the threshold, saving tokens
-- **Configurable score threshold** - set `FILTERING_SCORE` in your `.env` to control the minimum score for matched jobs and cover letter generation
-- **Local Streamlit dashboard** - a built-in web dashboard at `localhost:8501` with two tabs:
-  - **Analytics** - stat cards (total, fit, not fit, applied, avg score), donut charts for AI/user status distribution, and a bar chart showing daily applications over the last 7 days
-  - **Jobs** - searchable, sortable, filterable table with inline job cards, status management (applied / won't apply / reset), and one-click delete
-- **Advanced job filtering** - filter by AI status, user status, easy apply, min score, company, and website; search by title or company; sort by any column
-- **Cloudflare Quick Tunnel** - a `cloudflared` container automatically creates a public URL for the dashboard (no account needed), so you can access it from anywhere
-- **Telegram notifications** - sends the dashboard's public tunnel URL to Telegram every time the service starts, plus a notification when each n8n workflow run finishes
-- **Configurable search** - all LinkedIn search parameters controlled via a plain text JSON config file, no code changes needed
-- **LLM-powered keyword extraction** - automatically extracts relevant job titles and skills from your CV to filter RemoteOK results
-- **CV change detection** - the workflow hashes your CV on each run and compares it to the stored hash; keywords are only re-extracted when the CV actually changes, saving LLM tokens
-- **Flexible LLM provider** - use any OpenAI-compatible API (Groq, Google AI Studio, OpenRouter, local models, etc.) by setting the URL, key, and model in your `.env`
-- **Auto-import workflows** - workflows are automatically imported into n8n on first container start, no manual import needed
-- **Rate limiting** - built-in delays between LinkedIn requests to avoid blocking
-- **Persistent storage** - SQLite tracks seen and pending jobs across runs, with Alembic-managed schema migrations applied automatically on startup
-- **Scheduled cleanup** - old job records (older than `DELETE_OLD_JOBS_DAYS`, default 60 days) are purged on startup and daily at midnight
+- **AI scoring** - scores each job 0–100 based on your CV, required skills, and years of experience; small experience gaps (1–2 years) are penalized lightly, 3+ years below means score 0
+- **Cover letter generation** - only generated for jobs scoring above `FILTERING_SCORE` (default 60), saving tokens
+- **Streamlit dashboard** at `localhost:8501` with analytics (stat cards, charts, daily application history) and a filterable, sortable jobs table with inline job cards and status management
+- **Auto email application** - when a job listing includes an email address, the workflow sends a personalized application email with your CV attached and marks the job as `email_sent`
+- **Cloudflare Quick Tunnel** - auto-creates a public `trycloudflare.com` URL for the dashboard, no account needed
+- **Telegram notifications** - sends the dashboard URL on startup and a summary after each workflow run
+- **LLM-powered keyword extraction** - extracts job titles and skills from your CV to filter RemoteOK results; cached and only re-extracted when the CV changes
+- **Flexible LLM provider** - any OpenAI-compatible API (Groq, Google AI Studio, OpenRouter, local models, etc.)
+- **Persistent storage** - SQLite with Alembic migrations applied on startup; old records purged automatically
 
 ---
 
@@ -83,17 +73,13 @@ Open `.env` and fill in your values. See [Environment Variables](#environment-va
 
 ### 3. Add your CV
 
-Replace the placeholder with your actual CV:
-
 ```bash
 cp /path/to/your-cv.docx cv.docx
 ```
 
-The Python API reads this file and extracts the text to pass to the LLM for scoring.
-
 ### 4. Configure your LinkedIn searches
 
-Edit `params/linkedin_searches.txt` with your desired search parameters. You can define multiple searches to run in a single workflow execution. See [LinkedIn Search Config](#linkedin-search-config) for the full reference.
+Edit `params/linkedin_searches.txt` with your desired search parameters. See [LinkedIn Search Config](#linkedin-search-config) for the full reference.
 
 ### 5. Start the containers
 
@@ -101,20 +87,15 @@ Edit `params/linkedin_searches.txt` with your desired search parameters. You can
 docker compose up -d
 ```
 
-On first start, the custom n8n image automatically imports all workflows from the `workflows/` directory - no manual import needed.
+Workflows are automatically imported into n8n on first start.
 
 ### 6. Configure n8n credentials
 
-1. Open n8n at [http://localhost:5678](http://localhost:5678)
-2. The workflows are already imported and ready to use
-3. The LLM API key, URL, and model are read automatically from your `.env`
-4. For Telegram notifications, add a Telegram credential with `{{ $env.TELEGRAM_BOT_TOKEN }}`
+Open n8n at [http://localhost:5678](http://localhost:5678). The LLM config is read from your `.env`. For Telegram notifications, add a Telegram credential with `{{ $env.TELEGRAM_BOT_TOKEN }}`.
 
 ### 7. Open the dashboard
 
-Once jobs start flowing in, open the dashboard at [http://localhost:8501](http://localhost:8501) to browse results, track applications, and view analytics.
-
-A **Cloudflare Quick Tunnel** is created automatically on startup, giving you a public `https://xxx.trycloudflare.com` URL. The URL is sent to your Telegram (if configured) so you can access the dashboard from any device without port forwarding.
+Open [http://localhost:8501](http://localhost:8501) to browse results, track applications, and view analytics. A public `trycloudflare.com` URL is also created automatically and sent to your Telegram.
 
 ![Telegram Tunnel Notification](assets/telegram-tunnel-notification.png)
 
@@ -155,6 +136,15 @@ FILTERING_SCORE=60
 TELEGRAM_ID=123456789
 # Bot token from @BotFather
 TELEGRAM_BOT_TOKEN=xxxxxxxxx:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# ── Email (optional) ─────────────────────────────────
+# Set AUTO_EMAIL to any non-empty value to enable auto email applications
+AUTO_EMAIL=
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your@gmail.com
+SMTP_APP_PASSWORD=your_app_password
+SENDER_NAME=Your Name
 ```
 
 ### LinkedIn Search Config
@@ -202,15 +192,11 @@ Add as many search objects to the `searches` array as you need - each one runs a
 
 ### LLM Keywords Config
 
-Edit `params/llm_keywords_extract.txt` - this file contains a prompt template that the workflow sends to the LLM along with your CV text. The LLM analyzes your CV and extracts relevant job titles and technical skills, which are then used to filter RemoteOK results so only jobs matching your profile enter the pipeline.
-
-The prompt asks the LLM to return a JSON object with:
+Edit `params/llm_keywords_extract.txt` - a prompt template sent to the LLM along with your CV text. The LLM extracts:
 - **`titles`** - 3–5 realistic job titles based on your experience level
-- **`skills`** - 10–20 technical skills explicitly mentioned or directly inferable from your CV
+- **`skills`** - 10–20 technical skills from your CV
 
-You can customize the prompt to target different roles or skill areas.
-
-The extracted keywords are cached in the `cv_keywords` table along with a hash of your CV. On each run, the workflow compares the current CV hash to the stored one. If you update your `cv.docx`, the system detects the change automatically and re-extracts keywords. If the CV hasn't changed, it reuses the cached keywords without calling the LLM.
+These keywords filter RemoteOK results so only matching jobs enter the pipeline. Results are cached and only re-extracted when your CV changes.
 
 ---
 
@@ -300,10 +286,10 @@ CREATE TABLE filtered_jobs (
   description  TEXT,
   website      TEXT,
   score        INTEGER,           -- 0–100 AI match score
-  cover_letter TEXT,              -- generated cover letter (nullable)
+  application_document TEXT,     -- generated cover letter / application text (nullable)
   easy_apply   BOOLEAN DEFAULT FALSE,
   ai_status    TEXT,              -- "fit" or "not_fit"
-  user_status  TEXT DEFAULT 'new', -- "new", "applied", or "wont_apply"
+  user_status  TEXT DEFAULT 'new', -- "new", "applied", "wont_apply", or "email_sent"
   created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -327,27 +313,14 @@ Schema is managed by **Alembic migrations**, applied automatically on each conta
 
 The project includes a **Streamlit dashboard** at [http://localhost:8501](http://localhost:8501) for browsing and managing your matched jobs.
 
-### Analytics Tab
+| Analytics Tab | Jobs Tab |
+|:---:|:---:|
+| ![Analytics](assets/streamlit-analytics.png) | ![Jobs Table](assets/streamlit-jobs-table.png) |
 
-![Dashboard Analytics](assets/streamlit-analytics.png)
-
-- **Stat cards** - total jobs, fit, not fit, new, applied, won't apply, and average score
-- **AI Status donut chart** - fit vs not fit distribution
-- **User Status donut chart** - new / applied / won't apply distribution
-- **Daily Applications bar chart** - how many jobs you applied to each day over the last 7 days
-
-### Jobs Tab
-
-![Dashboard Jobs Table](assets/streamlit-jobs-table.png)
-
-- **Search** - filter jobs by title or company name
-- **Filters** - AI status, user status, easy apply, minimum score, company, website
-- **Sortable table** - columns for title, company, location, website, easy apply, apply link, and score
-- **Inline job card** - click any row to open a detail card beside the table with score, badges, description, cover letter, and action buttons
-- **Actions** - mark as applied, won't apply, reset to new, or delete a job entirely
-- **Pagination** - configurable page size (10 / 20 / 50 / 100)
-
-Default filters are set to `ai_status=fit`, `user_status=new`, and `min_score` from your `FILTERING_SCORE` env var so you see the most relevant jobs first.
+- **Analytics** - stat cards, AI/user status donut charts, daily applications bar chart (last 7 days)
+- **Jobs** - filterable, sortable table with inline job cards; filter by AI status, user status, easy apply, min score, company, website; search by title or company
+- **Actions** - mark as applied / won't apply / email sent, reset to new, or delete
+- **Defaults** - `ai_status=fit`, `user_status=new`, `min_score` from `FILTERING_SCORE`
 
 ---
 
@@ -368,11 +341,16 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 | `GET` | `/api/jobs/filtered` | `?ai_status=fit&user_status=new&min_score=60&search=...&company=...&website=...&sort_by=updated_at&sort_order=desc&page=1&page_size=20` | Paginated, filterable, sortable job list |
 | `GET` | `/api/jobs/filtered/options` | - | Distinct company and website values for filter dropdowns |
 | `GET` | `/api/jobs/filtered/{jobid}` | - | Get a single filtered job by ID |
-| `PATCH` | `/api/jobs/filtered/{jobid}/status` | `{"user_status": "applied"}` | Update user tracking status (`new` / `applied` / `wont_apply`) |
+| `PATCH` | `/api/jobs/filtered/{jobid}/status` | `{"user_status": "applied"}` | Update user tracking status (`new` / `applied` / `wont_apply` / `email_sent`) |
 | `DELETE` | `/api/jobs/filtered/{jobid}` | - | Delete a job from filtered_jobs |
-| `POST` | `/api/jobs/job/complete` | `?jobid=linkedin_123` | Move job from pending_jobs → seen_jobs |
-| `GET` | `/api/jobs/stats` | - | Aggregate counts (total, fit, not_fit, new, applied, wont_apply, avg_score) |
+| `GET` | `/api/jobs/stats` | - | Aggregate counts (total, fit, not_fit, new, applied, wont_apply, email_sent, avg_score) |
 | `GET` | `/api/jobs/stats/daily-applied` | `?days=7` | Daily application counts for the last N days |
+
+**Email** (`/api/email`):
+
+| Method | Endpoint | Params / Body | Description |
+|--------|----------|---------------|-------------|
+| `POST` | `/api/email/send` | JSON body | Send an application email with CV attached via SMTP |
 
 **CV** (`/api/cv`):
 
@@ -389,7 +367,7 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 |--------|----------|-------------|
 | `GET` | `/api/params/{name}` | Read and return `params/{name}.txt` |
 
-### `/api/jobs/pending` request body
+### `POST /api/jobs/pending`
 
 ```json
 {
@@ -404,7 +382,9 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 }
 ```
 
-### `/api/jobs/filtered` request body
+### `POST /api/jobs/filtered`
+
+Same fields as pending, plus `score`, `application_document`, and `ai_status`:
 
 ```json
 {
@@ -416,15 +396,31 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
   "description": "We are looking for a software engineer...",
   "website": "linkedin",
   "score": 82,
-  "cover_letter": "I am excited to apply for...",
+  "application_document": "I am excited to apply for...",
   "easy_apply": false,
   "ai_status": "fit"
 }
 ```
 
+### `POST /api/email/send`
+
+```json
+{
+  "recipient": "hiring@company.com",
+  "subject": "Application for Software Engineer",
+  "body": "Dear Hiring Manager,\n\nI am excited to apply for..."
+}
+```
+
+The email is sent via SMTP using the credentials from your `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_APP_PASSWORD`, `SENDER_NAME`). Your `cv.docx` is automatically attached. Set `AUTO_EMAIL` to any non-empty value in `.env` to enable the n8n workflow to call this endpoint automatically when a job listing provides an email address.
+
 ---
 
-## Estimated token usage per job
+## Estimated Token Usage Per Job
+
+### Job scoring & cover letter (every job)
+
+One LLM call per scraped job — scores the job against your CV and generates a cover letter for fits.
 
 | Component | Tokens (approx) |
 |-----------|----------------|
@@ -432,7 +428,29 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 | CV text | ~500–800 |
 | Job description | ~500–1,000 |
 | Output (score + cover letter) | ~400–600 |
-| **Total per job** | **~1,700–2,700** |
+| **Total** | **~1,700–2,700** |
+
+### Email eligibility check (fit jobs with `AUTO_EMAIL` enabled)
+
+A second LLM call runs only on jobs that scored ≥ `FILTERING_SCORE` **and** whose description contains an email hint. It receives the job description and the cover letter from step 1, determines whether the job actually requires applying via email, and if so extracts the recipient address and generates a professional application email body.
+
+| Component | Tokens (approx) |
+|-----------|----------------|
+| System prompt | ~300 |
+| Job description | ~500–1,000 |
+| Cover letter (from scoring step) | ~200–400 |
+| Job title + company + sender name | ~20–30 |
+| Output (JSON with email body or false) | ~200–400 |
+| **Total** | **~1,200–2,200** |
+
+### Summary
+
+| Scenario | LLM Calls | Tokens per job (approx) |
+|----------|-----------|------------------------|
+| Scoring only (`AUTO_EMAIL` off) | 1 | ~1,700–2,700 |
+| Scoring + email check (`AUTO_EMAIL` on, job has email hint) | 2 | ~2,900–4,900 |
+
+> **Note:** The email LLM call only runs on fit jobs whose description matches an email pattern — typically a small fraction of total scraped jobs. Most jobs still consume only the scoring tokens.
 
 ---
 
@@ -450,29 +468,11 @@ The n8n service uses a custom Docker image that automatically imports workflows 
 ### Useful commands
 
 ```bash
-# Start all services (builds n8n image on first run)
-docker compose up -d
-
-# Rebuild n8n image after changes to n8n/ directory
-docker compose up -d --build
-
-# View all logs live
-docker compose logs -f
-
-# View Python API logs only
-docker compose logs -f python-api
-
-# Restart Python API after editing main.py
-docker restart find-me-job-python-api
-
-# View dashboard logs
-docker compose logs -f dashboard
-
-# Stop everything
-docker compose down
-
-# Stop and wipe all data (WARNING: deletes database and n8n workflows)
-docker compose down -v
+docker compose up -d              # Start all services
+docker compose up -d --build      # Rebuild images after code changes
+docker compose logs -f python-api # Tail API logs
+docker compose down               # Stop everything
+docker compose down -v            # Stop and wipe all data (database + n8n state)
 
 # Force re-import of workflows on next start
 docker exec n8n rm /home/node/.n8n/.imported && docker restart n8n
