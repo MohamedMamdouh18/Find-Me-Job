@@ -2,3 +2,4 @@ streamlit==1.55.0
 streamlit-autorefresh==1.0.1
 requests==2.32.5
 plotly==6.0.1
+fpdf2==2.8.3

@@ -33,17 +33,17 @@ def get_filter_options() -> dict:
     try:
         return requests.get(f"{API}/jobs/filtered/options", timeout=TIMEOUT).json()
     except Exception:
-        return {"companies": [], "websites": []}
+        return {"companies": [], "websites": [], "locations": []}
 
 
 def get_filtered_jobs(
-    ai_status: str | None,
     user_status: str | None,
     easy_apply: bool | None,
     min_score: int,
     search: str | None,
     company: str | None,
     website: str | None,
+    location: str | None,
     sort_by: str,
     sort_order: str,
     page: int,
@@ -56,8 +56,6 @@ def get_filtered_jobs(
         "sort_by": sort_by,
         "sort_order": sort_order,
     }
-    if ai_status:
-        params["ai_status"] = ai_status
     if user_status:
         params["user_status"] = user_status
     if easy_apply is not None:
@@ -68,6 +66,8 @@ def get_filtered_jobs(
         params["company"] = company
     if website:
         params["website"] = website
+    if location:
+        params["location"] = location
     try:
         return requests.get(f"{API}/jobs/filtered", params=params, timeout=TIMEOUT).json()
     except Exception:

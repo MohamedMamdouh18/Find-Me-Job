@@ -48,6 +48,8 @@ services:
     restart: unless-stopped
     environment:
       - FILTERING_SCORE=${FILTERING_SCORE:-60}
+      - SENDER_NAME=${SENDER_NAME:-}
+      - SMTP_USER=${SMTP_USER:-}
     ports:
       - "8501:8501"
     depends_on:

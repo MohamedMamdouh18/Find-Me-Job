@@ -117,7 +117,11 @@ class FilteredJobRepository:
         return result
 
     def get_distinct_values(self, column: str) -> list[str]:
-        col_map = {"company": FilteredJob.company, "website": FilteredJob.website}
+        col_map = {
+            "company": FilteredJob.company,
+            "website": FilteredJob.website,
+            "location": FilteredJob.location,
+        }
         col = col_map.get(column)
         if not col:
             return []
@@ -133,6 +137,7 @@ class FilteredJobRepository:
         search: str | None = None,
         company: str | None = None,
         website: str | None = None,
+        location: str | None = None,
         sort_by: str = "updated_at",
         sort_order: str = "desc",
         page: int = 1,
@@ -154,12 +159,15 @@ class FilteredJobRepository:
                 or_(
                     FilteredJob.title.ilike(pattern),  # type: ignore[union-attr]
                     FilteredJob.company.ilike(pattern),  # type: ignore[union-attr]
+                    FilteredJob.location.ilike(pattern),  # type: ignore[union-attr]
                 )
             )
         if company:
             statement = statement.where(FilteredJob.company == company)
         if website:
             statement = statement.where(FilteredJob.website == website)
+        if location:
+            statement = statement.where(FilteredJob.location == location)
 
         # total count for pagination
         count_statement = select(func.count()).select_from(statement.subquery())

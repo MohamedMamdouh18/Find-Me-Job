@@ -40,6 +40,7 @@ def get_filter_options(session: Session = Depends(get_session)):
     return {
         "companies": repo.get_distinct_values("company"),
         "websites": repo.get_distinct_values("website"),
+        "locations": repo.get_distinct_values("location"),
     }
 
 
@@ -82,6 +83,7 @@ def get_filtered_jobs(
     search: Optional[str] = None,
     company: Optional[str] = None,
     website: Optional[str] = None,
+    location: Optional[str] = None,
     sort_by: str = "updated_at",
     sort_order: str = "desc",
     page: int = 1,
@@ -96,6 +98,7 @@ def get_filtered_jobs(
         search=search,
         company=company,
         website=website,
+        location=location,
         sort_by=sort_by,
         sort_order=sort_order,
         page=page,

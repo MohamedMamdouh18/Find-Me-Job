@@ -20,13 +20,13 @@ def render_jobs_table(filters: dict):
     _reset_page_on_filter_change(filters)
 
     resp = get_filtered_jobs(
-        ai_status=filters["ai_status"],
         user_status=filters["user_status"],
         easy_apply=filters["easy_apply"],
         min_score=filters["min_score"],
         search=filters["search"],
         company=filters["company"],
         website=filters["website"],
+        location=filters["location"],
         sort_by=filters["sort_by"],
         sort_order=filters["sort_order"],
         page=st.session_state.page,
