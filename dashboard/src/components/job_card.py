@@ -1,53 +1,16 @@
-import os
-
 import streamlit as st
-from fpdf import FPDF
 
 from api import update_job_status, delete_job
-
-SENDER_NAME = os.getenv("SENDER_NAME", "")
-SENDER_EMAIL = os.getenv("SMTP_USER", "")
-
-
-def _sanitize(text: str) -> str:
-    replacements = {
-        "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"',
-        "\u2013": "-", "\u2014": "-", "\u2026": "...", "\u00a0": " ",
-        "\u2022": "-", "\u200b": "",
-    }
-    for k, v in replacements.items():
-        text = text.replace(k, v)
-    return text.encode("latin-1", errors="replace").decode("latin-1")
-
-
-def _build_pdf(text: str, title: str, company: str) -> bytes:
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-
-    # Header: sender name and email (only if available)
-    if SENDER_NAME or SENDER_EMAIL:
-        if SENDER_NAME:
-            pdf.set_font("Helvetica", "B", 12)
-            pdf.cell(0, 8, _sanitize(SENDER_NAME), new_x="LMARGIN", new_y="NEXT")
-        if SENDER_EMAIL:
-            pdf.set_font("Helvetica", "", 10)
-            pdf.cell(0, 6, _sanitize(SENDER_EMAIL), new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(4)
-        pdf.set_draw_color(200, 200, 200)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(6)
-
-    # Job info
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 8, _sanitize(f"{title} - {company}"), new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-
-    # Document body
-    pdf.set_font("Helvetica", "", 10)
-    pdf.multi_cell(0, 6, _sanitize(text))
-
-    return bytes(pdf.output())
+from pdf import build_pdf
+from constants import (
+    AI_BADGE_CLASS,
+    AI_NOT_FIT,
+    USER_BADGE_CLASS,
+    USER_NEW,
+    USER_APPLIED,
+    USER_WONT_APPLY,
+    USER_EMAIL_SENT,
+)
 
 
 def _score_class(score: int) -> str:
@@ -65,21 +28,12 @@ def _badge(text: str, css_class: str) -> str:
 def render_job_card(job: dict):
     score = job.get("score", 0)
     ai_status = job.get("ai_status", "")
-    user_status = job.get("user_status", "new")
+    user_status = job.get("user_status", USER_NEW)
     job_id = job.get("id")
     easy_apply = job.get("easy_apply", False)
 
-    ai_badge = _badge(ai_status, "badge-fit" if ai_status == "fit" else "badge-not_fit")
-    us_badge_class = (
-        "badge-applied"
-        if user_status == "applied"
-        else "badge-wont"
-        if user_status == "wont_apply"
-        else "badge-email_sent"
-        if user_status == "email_sent"
-        else "badge-new"
-    )
-    us_badge = _badge(user_status, us_badge_class)
+    ai_badge = _badge(ai_status, AI_BADGE_CLASS.get(ai_status, AI_BADGE_CLASS[AI_NOT_FIT]))
+    us_badge = _badge(user_status, USER_BADGE_CLASS.get(user_status, USER_BADGE_CLASS[USER_NEW]))
     easy_badge = _badge("Easy Apply", "badge-easy") if easy_apply else ""
 
     title = job.get("title", "N/A")
@@ -115,19 +69,19 @@ def render_job_card(job: dict):
                 unsafe_allow_html=True,
             )
 
-            if user_status not in ("applied", "email_sent"):
+            if user_status not in (USER_APPLIED, USER_EMAIL_SENT):
                 if st.button("✅ Applied", key=f"applied_{job_id}", use_container_width=True):
-                    update_job_status(job_id, "applied")
+                    update_job_status(job_id, USER_APPLIED)
                     st.rerun()
 
-            if user_status == "new":
+            if user_status == USER_NEW:
                 if st.button("⏭ Won't Apply", key=f"wont_{job_id}", use_container_width=True):
-                    update_job_status(job_id, "wont_apply")
+                    update_job_status(job_id, USER_WONT_APPLY)
                     st.rerun()
 
-            if user_status in ("wont_apply", "applied", "email_sent"):
+            if user_status in (USER_WONT_APPLY, USER_APPLIED, USER_EMAIL_SENT):
                 if st.button("↩ Reset to New", key=f"reset_{job_id}", use_container_width=True):
-                    update_job_status(job_id, "new")
+                    update_job_status(job_id, USER_NEW)
                     st.rerun()
 
             if st.button(
@@ -150,7 +104,7 @@ def render_job_card(job: dict):
                     key=f"cl_{job_id}",
                     label_visibility="collapsed",
                 )
-                pdf_bytes = _build_pdf(job["application_document"], title, company)
+                pdf_bytes = build_pdf(job["application_document"], title, company)
                 file_name = f"{title} - {company}.pdf".replace("/", "-")
                 st.download_button(
                     "📥 Download as PDF",

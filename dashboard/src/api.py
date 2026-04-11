@@ -1,4 +1,10 @@
+import logging
+
 import requests
+
+from constants import EMPTY_STATS
+
+logger = logging.getLogger(__name__)
 
 API = "http://python-api:8001/api"
 TIMEOUT = 5
@@ -7,17 +13,9 @@ TIMEOUT = 5
 def get_stats() -> dict:
     try:
         return requests.get(f"{API}/jobs/stats", timeout=TIMEOUT).json()
-    except Exception:
-        return {
-            "total": 0,
-            "fit": 0,
-            "not_fit": 0,
-            "new": 0,
-            "applied": 0,
-            "wont_apply": 0,
-            "email_sent": 0,
-            "avg_score": 0,
-        }
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch job stats")
+        return EMPTY_STATS.copy()
 
 
 def get_daily_applied(days: int = 7) -> list:
@@ -25,18 +23,21 @@ def get_daily_applied(days: int = 7) -> list:
         return requests.get(
             f"{API}/jobs/stats/daily-applied", params={"days": days}, timeout=TIMEOUT
         ).json()
-    except Exception:
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch daily applied stats")
         return []
 
 
 def get_filter_options() -> dict:
     try:
         return requests.get(f"{API}/jobs/filtered/options", timeout=TIMEOUT).json()
-    except Exception:
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch filter options")
         return {"companies": [], "websites": [], "locations": []}
 
 
 def get_filtered_jobs(
+    ai_status: str | None,
     user_status: str | None,
     easy_apply: bool | None,
     min_score: int,
@@ -56,6 +57,8 @@ def get_filtered_jobs(
         "sort_by": sort_by,
         "sort_order": sort_order,
     }
+    if ai_status:
+        params["ai_status"] = ai_status
     if user_status:
         params["user_status"] = user_status
     if easy_apply is not None:
@@ -70,7 +73,8 @@ def get_filtered_jobs(
         params["location"] = location
     try:
         return requests.get(f"{API}/jobs/filtered", params=params, timeout=TIMEOUT).json()
-    except Exception:
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch filtered jobs")
         return {"rows": [], "total": 0, "pages": 1}
 
 
@@ -82,7 +86,8 @@ def update_job_status(job_id: str, user_status: str) -> bool:
             timeout=TIMEOUT,
         )
         return resp.status_code == 200
-    except Exception:
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to update job %s status to %s", job_id, user_status)
         return False
 
 
@@ -90,5 +95,6 @@ def delete_job(job_id: str) -> bool:
     try:
         resp = requests.delete(f"{API}/jobs/filtered/{job_id}", timeout=TIMEOUT)
         return resp.status_code == 200
-    except Exception:
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to delete job %s", job_id)
         return False

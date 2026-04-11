@@ -3,6 +3,14 @@ import plotly.graph_objects as go
 
 from api import get_stats, get_daily_applied
 from components.stats import render_stats
+from constants import (
+    AI_STATUSES,
+    AI_STATUS_LABELS,
+    AI_STATUS_COLORS,
+    USER_STATUSES,
+    USER_STATUS_LABELS,
+    USER_STATUS_COLORS,
+)
 
 CHART_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
@@ -25,9 +33,9 @@ def render_analytics():
         fig = go.Figure(
             data=[
                 go.Pie(
-                    labels=["Fit", "Not Fit"],
-                    values=[stats.get("fit", 0), stats.get("not_fit", 0)],
-                    marker_colors=["#4ade80", "#f87171"],
+                    labels=[AI_STATUS_LABELS[s] for s in AI_STATUSES],
+                    values=[stats.get(s, 0) for s in AI_STATUSES],
+                    marker_colors=[AI_STATUS_COLORS[s] for s in AI_STATUSES],
                     hole=0.7,
                 )
             ]
@@ -39,14 +47,9 @@ def render_analytics():
         fig = go.Figure(
             data=[
                 go.Pie(
-                    labels=["New", "Applied", "Won't Apply", "Email Sent"],
-                    values=[
-                        stats.get("new", 0),
-                        stats.get("applied", 0),
-                        stats.get("wont_apply", 0),
-                        stats.get("email_sent", 0),
-                    ],
-                    marker_colors=["#60a5fa", "#4ade80", "#fb923c", "#22d3ee"],
+                    labels=[USER_STATUS_LABELS[s] for s in USER_STATUSES],
+                    values=[stats.get(s, 0) for s in USER_STATUSES],
+                    marker_colors=[USER_STATUS_COLORS[s] for s in USER_STATUSES],
                     hole=0.7,
                 )
             ]
@@ -56,7 +59,6 @@ def render_analytics():
 
     daily = get_daily_applied()
     if daily:
-        # Show short day labels like "Mon 24"
         days = [d["day"][5:] for d in daily]  # "MM-DD"
         applied = [d["applied"] for d in daily]
 

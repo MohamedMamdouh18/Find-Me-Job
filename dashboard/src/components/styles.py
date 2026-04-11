@@ -82,6 +82,14 @@ def inject_styles():
         border-radius: 6px;
     }
 
+    .pagination-text {
+        text-align: center;
+        opacity: 0.5;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.8rem;
+        padding-top: 0.5rem;
+    }
+
     /* Data table */
     [data-testid="stDataFrame"] {
         border-radius: 6px;
