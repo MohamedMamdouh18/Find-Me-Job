@@ -28,6 +28,22 @@ def get_daily_applied(days: int = 7) -> list:
         return []
 
 
+def get_scores() -> list[int]:
+    try:
+        return requests.get(f"{API}/jobs/stats/scores", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch scores")
+        return []
+
+
+def get_stats_by_source() -> list:
+    try:
+        return requests.get(f"{API}/jobs/stats/by-source", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch stats by source")
+        return []
+
+
 def get_filter_options() -> dict:
     try:
         return requests.get(f"{API}/jobs/filtered/options", timeout=TIMEOUT).json()

@@ -121,3 +121,13 @@ def get_stats(session: Session = Depends(get_session)):
 @jobs_router.get("/stats/daily-applied")
 def get_daily_applied(days: int = 7, session: Session = Depends(get_session)):
     return FilteredJobRepository(session).get_daily_applied(days)
+
+
+@jobs_router.get("/stats/by-source")
+def get_stats_by_source(session: Session = Depends(get_session)):
+    return FilteredJobRepository(session).get_stats_by_source()
+
+
+@jobs_router.get("/stats/scores")
+def get_scores(session: Session = Depends(get_session)):
+    return FilteredJobRepository(session).get_all_scores()

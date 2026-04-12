@@ -52,6 +52,29 @@ EMPTY_STATS = {
     "avg_score": 0,
 }
 
+# Heatmap color scale (dark-to-green, GitHub-style)
+HEATMAP_COLORSCALE = [
+    [0.0, "#161b22"],
+    [0.01, "#0e4429"],
+    [0.25, "#006d32"],
+    [0.5, "#26a641"],
+    [1.0, "#39d353"],
+]
+
+# Treemap source palette (循环使用)
+SOURCE_COLORS = [
+    "#4ade80", "#60a5fa", "#f59e0b", "#f87171", "#a78bfa",
+    "#22d3ee", "#fb923c", "#e879f9", "#34d399", "#fbbf24",
+]
+
+# Shared chart layout — no hardcoded font_color so Streamlit theme applies
+CHART_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    margin=dict(t=40, b=20, l=20, r=20),
+    legend=dict(font=dict(size=11)),
+)
+
 # Cross-file session state keys
 SK_PAGE = "page"
 SK_FILTER_KEY = "filter_key"

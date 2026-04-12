@@ -87,6 +87,10 @@ class FilteredJobRepository:
             "avg_score": round(stats.avg_score) if stats.avg_score else 0,
         }
 
+    def get_all_scores(self) -> list[int]:
+        statement = select(FilteredJob.score).order_by(FilteredJob.score.asc())  # type: ignore[arg-type]
+        return list(self.session.exec(statement).all())
+
     def get_daily_applied(self, days: int = 7) -> list[dict]:
         today = now().date()
         cutoff = today - timedelta(days=days - 1)
@@ -115,6 +119,39 @@ class FilteredJobRepository:
             key = d.strftime("%Y-%m-%d")
             result.append({"day": key, "applied": db_data.get(key, 0)})
         return result
+
+    def get_stats_by_source(self) -> list[dict]:
+        website_col = FilteredJob.__table__.c.website  # type: ignore[attr-defined]
+        user_status_col = FilteredJob.__table__.c.user_status  # type: ignore[attr-defined]
+
+        statement = (
+            select(  # type: ignore[call-overload]
+                website_col.label("source"),
+                func.count().label("total"),
+                func.sum(
+                    case(
+                        (
+                            user_status_col.in_(
+                                [UserStatus.APPLIED.value, UserStatus.EMAIL_SENT.value]
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("applied"),
+            )
+            .group_by(website_col)
+            .order_by(func.count().desc())
+        )
+        rows = self.session.exec(statement).all()
+        return [
+            {
+                "source": r.source or "Unknown",
+                "total": r.total,
+                "applied": r.applied or 0,
+            }
+            for r in rows
+        ]
 
     def get_distinct_values(self, column: str) -> list[str]:
         col_map = {
