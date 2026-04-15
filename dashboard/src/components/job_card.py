@@ -1,6 +1,6 @@
 import streamlit as st
 
-from api import update_job_status, delete_job, get_job_history
+from api import update_job_status, delete_job, get_job_history, toggle_starred_company
 from pdf import build_pdf
 from constants import (
     AI_BADGE_CLASS,
@@ -28,12 +28,14 @@ def _format_history_timestamp(raw: str) -> str:
     return raw.replace("T", " ")[:16]
 
 
-def render_job_card(job: dict):
+def render_job_card(job: dict, starred_names: frozenset = frozenset()):
     score = job.get("score", 0)
     ai_status = job.get("ai_status", "")
     user_status = job.get("user_status", USER_NEW)
     job_id = job.get("id")
     easy_apply = job.get("easy_apply", False)
+    company = job.get("company", "")
+    is_starred = company.lower() in starred_names
 
     ai_badge = _badge(ai_status, AI_BADGE_CLASS.get(ai_status, AI_BADGE_CLASS[AI_NOT_FIT]))
     us_badge = _badge(
@@ -43,13 +45,13 @@ def render_job_card(job: dict):
     easy_badge = _badge("Easy Apply", "badge-easy") if easy_apply else ""
 
     title = job.get("title", "N/A")
-    company = job.get("company", "N/A")
     icon = "⚡" if easy_apply else "·"
 
     with st.expander(f"{icon} {title} — {company}", expanded=True):
         meta_col, action_col = st.columns([3, 2])
 
         with meta_col:
+            star_icon = "⭐" if is_starred else "☆"
             st.markdown(
                 f"""
             <div style="margin-bottom:0.5rem">
@@ -59,6 +61,10 @@ def render_job_card(job: dict):
             <div style="opacity:0.7;font-size:0.85rem;margin-bottom:0.4rem">
                 📍 {job.get("location", "N/A")} &nbsp;|&nbsp; 🌐 {job.get("website", "N/A")}
             </div>
+            <div style="margin-bottom:0.4rem">
+                <span style="font-size:0.95rem;font-weight:600">{company}</span>
+                &nbsp;<span style="font-size:0.9rem">{star_icon}</span>
+            </div>
             <div style="margin-top:0.4rem">
                 {ai_badge}{us_badge}{easy_badge}
             </div>
@@ -66,7 +72,15 @@ def render_job_card(job: dict):
                 unsafe_allow_html=True,
             )
 
-            st.markdown(f"🔗 [Apply Here]({job.get('applylink', '#')})")
+            link_col, star_col = st.columns([3, 1])
+            with link_col:
+                st.markdown(f"🔗 [Apply Here]({job.get('applylink', '#')})")
+            with star_col:
+                star_label = "★ Unstar" if is_starred else "☆ Star"
+                if st.button(star_label, key=f"star_{job_id}", use_container_width=True):
+                    toggle_starred_company(company)
+                    st.cache_data.clear()
+                    st.rerun()
 
         with action_col:
             st.markdown(

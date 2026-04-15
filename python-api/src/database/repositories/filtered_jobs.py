@@ -5,6 +5,7 @@ from sqlmodel import Session, select, func
 
 from ..models import FilteredJob, JobStatusHistory
 from ..models.enums import AiStatus, UserStatus, APPLIED_BUCKET
+from ..models.starred_company import StarredCompany
 from ...shared import now
 
 SORTABLE_COLUMNS = {
@@ -176,6 +177,7 @@ class FilteredJobRepository:
         company: str | None = None,
         website: str | None = None,
         location: str | None = None,
+        starred_only: bool = False,
         sort_by: str = "updated_at",
         sort_order: str = "desc",
         page: int = 1,
@@ -206,6 +208,11 @@ class FilteredJobRepository:
             statement = statement.where(FilteredJob.website == website)
         if location:
             statement = statement.where(FilteredJob.location == location)
+        if starred_only:
+            starred_names_subq = select(StarredCompany.company_name)
+            statement = statement.where(
+                func.lower(FilteredJob.company).in_(starred_names_subq)  # type: ignore[arg-type]
+            )
 
         count_statement = select(func.count()).select_from(statement.subquery())
         total = self.session.exec(count_statement).one()

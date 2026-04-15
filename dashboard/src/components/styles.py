@@ -99,6 +99,68 @@ def inject_styles():
     [data-testid="stDataFrame"] {
         border-radius: 6px;
     }
+
+    /* ── Starred companies ─────────────────────────────────────────────────── */
+    .starred-count {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        opacity: 0.4;
+        margin-bottom: 1.2rem;
+    }
+
+    .starred-card-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        padding-bottom: 0.45rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .starred-company-name {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-color);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .starred-date-badge {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.68rem;
+        opacity: 0.35;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 0.1rem 0.45rem;
+        border-radius: 3px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .starred-notes {
+        font-size: 0.84rem;
+        opacity: 0.6;
+        margin: 0.25rem 0 0.4rem 0;
+        line-height: 1.5;
+    }
+
+    .starred-no-url {
+        display: block;
+        font-size: 0.78rem;
+        opacity: 0.22;
+        font-style: italic;
+        margin-bottom: 0.3rem;
+    }
+
+    .starred-card-divider {
+        height: 1px;
+        background: rgba(255, 255, 255, 0.05);
+        margin: 0.9rem 0 1rem 0;
+    }
+    
 </style>
 """,
         unsafe_allow_html=True,

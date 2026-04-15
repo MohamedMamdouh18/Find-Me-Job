@@ -5,3 +5,4 @@ from .pending_job import PendingJob
 from .filtered_job import FilteredJob
 from .job_status_history import JobStatusHistory
 from .cv_keywords import CVKeywords
+from .starred_company import StarredCompany

@@ -4,6 +4,7 @@ from streamlit_autorefresh import st_autorefresh
 from components.styles import inject_styles
 from components.analytics import render_analytics
 from components.jobs_tab import render_jobs_tab
+from components.starred_tab import render_starred_tab
 
 st.set_page_config(
     page_title="Find Me a Job",
@@ -18,11 +19,13 @@ st_autorefresh(interval=5 * 60 * 1000, key="autorefresh")
 
 with st.sidebar:
     st.markdown("## 🎯 Find Me a Job")
-    tab = st.radio("Navigation", ["Analytics", "Jobs"], label_visibility="collapsed")
+    tab = st.radio("Navigation", ["Analytics", "Jobs", "⭐ Starred"], label_visibility="collapsed")
     if st.button("🔄 Refresh", use_container_width=True):
         st.rerun()
 
 if tab == "Analytics":
     render_analytics()
-else:
+elif tab == "Jobs":
     render_jobs_tab()
+else:
+    render_starred_tab()

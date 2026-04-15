@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from .routes import cv_router, jobs_router, params_router, email_router
+from .routes import cv_router, jobs_router, params_router, email_router, starred_router
 from contextlib import asynccontextmanager
 from .database.core import delete_old_jobs, run_migrations
 from . import shared
@@ -37,3 +37,4 @@ app.include_router(cv_router)
 app.include_router(jobs_router)
 app.include_router(params_router)
 app.include_router(email_router)
+app.include_router(starred_router)

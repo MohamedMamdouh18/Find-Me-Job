@@ -1,8 +1,13 @@
 import streamlit as st
 import pandas as pd
-from api import get_filtered_jobs
+from api import get_filtered_jobs, get_starred_names
 from components.job_card import render_job_card
 from constants import SK_PAGE, SK_FILTER_KEY, SK_SELECTED_JOB_INDEX
+
+
+@st.cache_data(ttl=60)
+def _get_starred_names_cached() -> frozenset:
+    return frozenset(get_starred_names())
 
 
 def _reset_page_on_filter_change(filters: dict):
@@ -29,6 +34,7 @@ def render_jobs_table(filters: dict):
         company=filters["company"],
         website=filters["website"],
         location=filters["location"],
+        starred_only=filters.get("starred_only", False),
         sort_by=filters["sort_by"],
         sort_order=filters["sort_order"],
         page=st.session_state[SK_PAGE],
@@ -48,11 +54,13 @@ def render_jobs_table(filters: dict):
         st.info("No jobs found matching your filters.")
         return
 
+    starred_names = _get_starred_names_cached()
+
     df = pd.DataFrame(
         [
             {
                 "Title": j["title"],
-                "Company": j["company"],
+                "Company": ("⭐ " if j["company"].lower() in starred_names else "") + j["company"],
                 "Location": j.get("location", "N/A"),
                 "Website": j["website"],
                 "Easy Apply": "✅" if j.get("easy_apply") else "❌",
@@ -106,7 +114,7 @@ def render_jobs_table(filters: dict):
     selected_index = st.session_state.get(SK_SELECTED_JOB_INDEX)
     if card_col and selected_index is not None and selected_index < len(jobs):
         with card_col:
-            render_job_card(jobs[selected_index])
+            render_job_card(jobs[selected_index], starred_names=starred_names)
 
     _render_pagination(total_pages)
 

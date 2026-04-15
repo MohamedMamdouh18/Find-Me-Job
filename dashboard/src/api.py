@@ -61,6 +61,7 @@ def get_filtered_jobs(
     company: str | None,
     website: str | None,
     location: str | None,
+    starred_only: bool,
     sort_by: str,
     sort_order: str,
     page: int,
@@ -87,6 +88,8 @@ def get_filtered_jobs(
         params["website"] = website
     if location:
         params["location"] = location
+    if starred_only:
+        params["starred_only"] = True
     try:
         return requests.get(f"{API}/jobs/filtered", params=params, timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
@@ -124,3 +127,83 @@ def get_job_history(job_id: str) -> list[dict]:
     except (requests.RequestException, ValueError):
         logger.exception("Failed to fetch history for %s", job_id)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Starred companies
+# ---------------------------------------------------------------------------
+
+def get_starred_companies(search: str | None = None) -> list[dict]:
+    try:
+        params = {"search": search} if search else {}
+        return requests.get(f"{API}/starred", params=params, timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch starred companies")
+        return []
+
+
+def get_starred_names() -> list[str]:
+    """Return all starred company names (lowercase) for bulk client-side checks."""
+    try:
+        return requests.get(f"{API}/starred/names", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch starred company names")
+        return []
+
+
+def add_starred_company(
+    company_name: str,
+    careers_url: str | None = None,
+    notes: str | None = None,
+) -> dict | None:
+    try:
+        resp = requests.post(
+            f"{API}/starred",
+            json={"company_name": company_name, "careers_url": careers_url, "notes": notes},
+            timeout=TIMEOUT,
+        )
+        if resp.status_code in (200, 201):
+            return resp.json()
+        return None
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to add starred company %s", company_name)
+        return None
+
+
+def delete_starred_company(id: int) -> bool:
+    try:
+        resp = requests.delete(f"{API}/starred/{id}", timeout=TIMEOUT)
+        return resp.status_code == 200
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to delete starred company %s", id)
+        return False
+
+
+def update_starred_company(
+    id: int,
+    careers_url: str | None = None,
+    notes: str | None = None,
+) -> bool:
+    try:
+        resp = requests.patch(
+            f"{API}/starred/{id}",
+            json={"careers_url": careers_url, "notes": notes},
+            timeout=TIMEOUT,
+        )
+        return resp.status_code == 200
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to update starred company %s", id)
+        return False
+
+
+def toggle_starred_company(company_name: str) -> dict:
+    try:
+        resp = requests.post(
+            f"{API}/starred/toggle",
+            json={"company_name": company_name},
+            timeout=TIMEOUT,
+        )
+        return resp.json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to toggle starred company %s", company_name)
+        return {"is_starred": False}

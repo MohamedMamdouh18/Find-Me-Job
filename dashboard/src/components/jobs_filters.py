@@ -19,6 +19,7 @@ _DEFAULTS = {
     "location_select": "all",
     "sort_by_select": "updated_at",
     "sort_order_select": "desc",
+    "starred_only_check": False,
 }
 
 
@@ -71,8 +72,8 @@ def render_jobs_filters() -> dict:
 
     _init_defaults()
 
-    # Row 1: search + score slider/input + clear + per page
-    s1, s2, s3, s4, s5 = st.columns([3, 2, 0.6, 0.8, 0.7])
+    # Row 1: search + score slider/input + clear + per page + starred
+    s1, s2, s3, s4, s5, s6 = st.columns([3, 2, 0.6, 0.8, 0.7, 0.9])
     with s1:
         search = st.text_input(
             "Search", key="search_input", label_visibility="collapsed",
@@ -93,6 +94,9 @@ def render_jobs_filters() -> dict:
         st.button("Clear Filters", on_click=_clear_filters, use_container_width=True)
     with s5:
         page_size = st.selectbox("Per page", [10, 20, 50, 100], key="page_size_select")
+    with s6:
+        st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
+        starred_only = st.checkbox("⭐ Starred only", key="starred_only_check")
 
     # Row 2: main filters
     f1, f2, f3, f4, f5, f6, f7, f8 = st.columns(8)
@@ -131,6 +135,7 @@ def render_jobs_filters() -> dict:
         "company": _none_if_all(company_raw),
         "website": _none_if_all(website_raw),
         "location": _none_if_all(location_raw),
+        "starred_only": starred_only,
         "sort_by": sort_by,
         "sort_order": sort_order,
         "page_size": page_size,

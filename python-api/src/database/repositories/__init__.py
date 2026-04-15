@@ -3,6 +3,7 @@ from .filtered_jobs import FilteredJobRepository
 from .job_status_history import JobStatusHistoryRepository
 from .pending_jobs import PendingJobRepository
 from .seen_jobs import SeenJobRepository
+from .starred_companies import StarredCompanyRepository
 
 __all__ = [
     "CVKeywordsRepository",
@@ -10,4 +11,5 @@ __all__ = [
     "JobStatusHistoryRepository",
     "PendingJobRepository",
     "SeenJobRepository",
+    "StarredCompanyRepository",
 ]
