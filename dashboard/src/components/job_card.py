@@ -1,15 +1,14 @@
 import streamlit as st
 
-from api import update_job_status, delete_job
+from api import update_job_status, delete_job, get_job_history
 from pdf import build_pdf
 from constants import (
     AI_BADGE_CLASS,
     AI_NOT_FIT,
     USER_BADGE_CLASS,
     USER_NEW,
-    USER_APPLIED,
-    USER_WONT_APPLY,
-    USER_EMAIL_SENT,
+    USER_STATUSES,
+    USER_STATUS_LABELS,
 )
 
 
@@ -25,6 +24,10 @@ def _badge(text: str, css_class: str) -> str:
     return f'<span class="badge {css_class}">{text}</span>'
 
 
+def _format_history_timestamp(raw: str) -> str:
+    return raw.replace("T", " ")[:16]
+
+
 def render_job_card(job: dict):
     score = job.get("score", 0)
     ai_status = job.get("ai_status", "")
@@ -33,7 +36,10 @@ def render_job_card(job: dict):
     easy_apply = job.get("easy_apply", False)
 
     ai_badge = _badge(ai_status, AI_BADGE_CLASS.get(ai_status, AI_BADGE_CLASS[AI_NOT_FIT]))
-    us_badge = _badge(user_status, USER_BADGE_CLASS.get(user_status, USER_BADGE_CLASS[USER_NEW]))
+    us_badge = _badge(
+        USER_STATUS_LABELS.get(user_status, user_status),
+        USER_BADGE_CLASS.get(user_status, USER_BADGE_CLASS[USER_NEW]),
+    )
     easy_badge = _badge("Easy Apply", "badge-easy") if easy_apply else ""
 
     title = job.get("title", "N/A")
@@ -65,23 +71,29 @@ def render_job_card(job: dict):
         with action_col:
             st.markdown(
                 '<div style="opacity:0.5;font-size:0.75rem;text-transform:uppercase;'
-                'letter-spacing:0.1em;margin-bottom:0.5rem">Actions</div>',
+                'letter-spacing:0.1em;margin-bottom:0.5rem">Status</div>',
                 unsafe_allow_html=True,
             )
 
-            if user_status not in (USER_APPLIED, USER_EMAIL_SENT):
-                if st.button("✅ Applied", key=f"applied_{job_id}", use_container_width=True):
-                    update_job_status(job_id, USER_APPLIED)
-                    st.rerun()
+            current_index = (
+                USER_STATUSES.index(user_status) if user_status in USER_STATUSES else 0
+            )
+            selected = st.selectbox(
+                "Status",
+                USER_STATUSES,
+                index=current_index,
+                format_func=lambda s: USER_STATUS_LABELS.get(s, s),
+                key=f"status_{job_id}",
+                label_visibility="collapsed",
+            )
 
-            if user_status == USER_NEW:
-                if st.button("⏭ Won't Apply", key=f"wont_{job_id}", use_container_width=True):
-                    update_job_status(job_id, USER_WONT_APPLY)
-                    st.rerun()
-
-            if user_status in (USER_WONT_APPLY, USER_APPLIED, USER_EMAIL_SENT):
-                if st.button("↩ Reset to New", key=f"reset_{job_id}", use_container_width=True):
-                    update_job_status(job_id, USER_NEW)
+            if selected != user_status:
+                if st.button(
+                    f"Update to {USER_STATUS_LABELS.get(selected, selected)}",
+                    key=f"upd_{job_id}",
+                    use_container_width=True,
+                ):
+                    update_job_status(job_id, selected)
                     st.rerun()
 
             if st.button(
@@ -114,3 +126,13 @@ def render_job_card(job: dict):
                     key=f"pdf_{job_id}",
                     use_container_width=True,
                 )
+
+        with st.expander("📜 Status History"):
+            history = get_job_history(job_id)
+            if not history:
+                st.caption("No transitions recorded")
+            else:
+                for row in history:
+                    label = USER_STATUS_LABELS.get(row["status"], row["status"])
+                    ts = _format_history_timestamp(row["changed_at"])
+                    st.markdown(f"• **{label}** — `{ts}`")

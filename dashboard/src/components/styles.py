@@ -66,9 +66,14 @@ def inject_styles():
     .badge-not_fit    { background: #450a0a; color: #f87171; }
     .badge-new        { background: #1e3a5f; color: #60a5fa; }
     .badge-applied    { background: #14532d; color: #4ade80; }
-    .badge-wont       { background: #2a1a00; color: #fb923c; }
-    .badge-easy       { background: #1a1a2e; color: #a78bfa; }
     .badge-email_sent { background: #0c3347; color: #22d3ee; }
+    .badge-referral   { background: #2e1065; color: #a78bfa; }
+    .badge-assessment { background: #422006; color: #facc15; }
+    .badge-interview  { background: #431407; color: #fb923c; }
+    .badge-offer      { background: #064e3b; color: #34d399; }
+    .badge-rejected   { background: #450a0a; color: #f87171; }
+    .badge-wont       { background: #1f2937; color: #94a3b8; }
+    .badge-easy       { background: #1a1a2e; color: #a78bfa; }
 
     div[data-testid="stButton"] button {
         font-family: 'IBM Plex Mono', monospace;

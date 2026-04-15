@@ -9,5 +9,17 @@ class AiStatus(str, enum.Enum):
 class UserStatus(str, enum.Enum):
     NEW = "new"
     APPLIED = "applied"
-    WONT_APPLY = "wont_apply"
     EMAIL_SENT = "email_sent"
+    REFERRAL = "referral"
+    ASSESSMENT = "assessment"
+    INTERVIEW = "interview"
+    OFFER = "offer"
+    REJECTED = "rejected"
+    WONT_APPLY = "wont_apply"
+
+
+APPLIED_BUCKET = {
+    UserStatus.APPLIED,
+    UserStatus.EMAIL_SENT,
+    UserStatus.REFERRAL,
+}

@@ -9,13 +9,31 @@ from constants import (
     AI_STATUSES,
     AI_STATUS_LABELS,
     AI_STATUS_COLORS,
+    APPLIED_BUCKET,
     USER_STATUSES,
     USER_STATUS_LABELS,
     USER_STATUS_COLORS,
+    USER_NEW,
+    USER_APPLIED,
+    USER_ASSESSMENT,
+    USER_INTERVIEW,
+    USER_OFFER,
+    USER_REJECTED,
+    USER_WONT_APPLY,
     HEATMAP_COLORSCALE,
     SOURCE_COLORS,
     CHART_LAYOUT,
 )
+
+APPLIED_BUCKET_KEY = "_applied_bucket"
+PIPELINE_STAGES = [
+    APPLIED_BUCKET_KEY,
+    USER_ASSESSMENT,
+    USER_INTERVIEW,
+    USER_OFFER,
+    USER_REJECTED,
+    USER_WONT_APPLY,
+]
 
 HEATMAP_DAYS = 365
 
@@ -127,15 +145,16 @@ def _ai_status_donut(stats: dict) -> go.Figure:
 
 
 def _user_status_donut(stats: dict) -> go.Figure:
-    """Donut chart with outside labels showing count + percentage."""
-    values = [stats.get(s, 0) for s in USER_STATUSES]
-    total = sum(values)
-
-    labels = [
-        f"{USER_STATUS_LABELS[s]}: {stats.get(s, 0)}"
+    """Donut chart showing distribution across non-zero user statuses."""
+    entries = [
+        (USER_STATUS_LABELS[s], stats.get(s, 0), USER_STATUS_COLORS[s])
         for s in USER_STATUSES
+        if stats.get(s, 0) > 0
     ]
-    colors = [USER_STATUS_COLORS[s] for s in USER_STATUSES]
+    labels = [e[0] for e in entries]
+    values = [e[1] for e in entries]
+    colors = [e[2] for e in entries]
+    total = sum(values)
 
     fig = go.Figure(
         data=[
@@ -146,12 +165,12 @@ def _user_status_donut(stats: dict) -> go.Figure:
                     colors=colors,
                     line=dict(width=2, color="rgba(0,0,0,0.15)"),
                 ),
-                hole=0.62,
-                pull=[0.04] * len(values),
-                textinfo="label+percent",
+                hole=0.68,
+                pull=[0.03] * len(labels),
+                textinfo="label+value+percent",
                 textposition="outside",
-                textfont=dict(size=11),
-                hovertemplate="<b>%{label}</b><br>%{percent}<extra></extra>",
+                textfont=dict(size=12),
+                hovertemplate="<b>%{label}</b><br>%{value} jobs (%{percent})<extra></extra>",
                 sort=False,
             )
         ]
@@ -159,12 +178,58 @@ def _user_status_donut(stats: dict) -> go.Figure:
     fig.add_annotation(
         text=f"<b>{total}</b><br><span style='font-size:11px'>total</span>",
         x=0.5, y=0.5, showarrow=False,
-        font=dict(size=24),
+        font=dict(size=22),
     )
     fig.update_layout(
         title="User Status",
         showlegend=False,
         **CHART_LAYOUT,
+    )
+    return fig
+
+
+def _pipeline_bar(stats: dict) -> go.Figure:
+    """Horizontal bar chart of job count per pipeline stage (applied bucket merged)."""
+    applied_total = sum(stats.get(s, 0) for s in APPLIED_BUCKET)
+
+    labels, values, colors = [], [], []
+    for stage in PIPELINE_STAGES:
+        if stage == APPLIED_BUCKET_KEY:
+            labels.append("Applied")
+            values.append(applied_total)
+            colors.append(USER_STATUS_COLORS[USER_APPLIED])
+        else:
+            labels.append(USER_STATUS_LABELS[stage])
+            values.append(stats.get(stage, 0))
+            colors.append(USER_STATUS_COLORS[stage])
+
+    # Reverse so the first stage ("New") sits at the top of the chart.
+    labels_r = labels[::-1]
+    values_r = values[::-1]
+    colors_r = colors[::-1]
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                y=labels_r,
+                x=values_r,
+                orientation="h",
+                marker=dict(
+                    color=colors_r,
+                    line=dict(width=1, color="rgba(0,0,0,0.15)"),
+                ),
+                text=[str(v) if v > 0 else "" for v in values_r],
+                textposition="outside",
+                textfont=dict(size=12, family="IBM Plex Mono, monospace"),
+                hovertemplate="<b>%{y}</b><br>%{x} jobs<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Pipeline Status",
+        xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+        yaxis=dict(showgrid=False),
+        **{**CHART_LAYOUT, "margin": dict(t=40, b=20, l=110, r=60)},
     )
     return fig
 
@@ -335,6 +400,8 @@ def render_analytics():
         st.plotly_chart(_ai_status_donut(stats), use_container_width=True)
     with col2:
         st.plotly_chart(_user_status_donut(stats), use_container_width=True)
+
+    st.plotly_chart(_pipeline_bar(stats), use_container_width=True)
 
     col3, col4 = st.columns(2)
     with col3:

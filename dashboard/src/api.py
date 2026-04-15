@@ -114,3 +114,13 @@ def delete_job(job_id: str) -> bool:
     except (requests.RequestException, ValueError):
         logger.exception("Failed to delete job %s", job_id)
         return False
+
+
+def get_job_history(job_id: str) -> list[dict]:
+    try:
+        return requests.get(
+            f"{API}/jobs/filtered/{job_id}/history", timeout=TIMEOUT
+        ).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch history for %s", job_id)
+        return []

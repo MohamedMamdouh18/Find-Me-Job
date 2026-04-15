@@ -68,6 +68,11 @@ def delete_filtered_job(jobid: str, session: Session = Depends(get_session)):
     return {"status": "ok"}
 
 
+@jobs_router.get("/filtered/{jobid}/history")
+def get_filtered_job_history(jobid: str, session: Session = Depends(get_session)):
+    return FilteredJobRepository(session).get_status_history(jobid)
+
+
 @jobs_router.get("/pending")
 def get_pending_jobs(session: Session = Depends(get_session)):
     jobs = PendingJobRepository(session).get_all()

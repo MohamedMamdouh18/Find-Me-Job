@@ -3,8 +3,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import case, or_
 from sqlmodel import Session, select, func
 
-from ..models import FilteredJob
-from ..models.enums import AiStatus, UserStatus
+from ..models import FilteredJob, JobStatusHistory
+from ..models.enums import AiStatus, UserStatus, APPLIED_BUCKET
 from ...shared import now
 
 SORTABLE_COLUMNS = {
@@ -15,6 +15,8 @@ SORTABLE_COLUMNS = {
     "company": FilteredJob.company,
     "website": FilteredJob.website,
 }
+
+APPLIED_VALUES = [s.value for s in APPLIED_BUCKET]
 
 
 class FilteredJobRepository:
@@ -34,9 +36,12 @@ class FilteredJobRepository:
         job = self.session.get(FilteredJob, job_id)
         if not job:
             return False
+        if job.user_status == user_status:
+            return True  # idempotent — no history entry for no-op
         job.user_status = user_status
         job.updated_at = now()
         self.session.add(job)
+        self.session.add(JobStatusHistory(job_id=job_id, status=user_status.value))
         return True
 
     def delete(self, job_id: str) -> bool:
@@ -55,37 +60,30 @@ class FilteredJobRepository:
         ai_status_col = FilteredJob.__table__.c.ai_status  # type: ignore[attr-defined]
         user_status_col = FilteredJob.__table__.c.user_status  # type: ignore[attr-defined]
 
+        ai_counts = [
+            func.sum(case((ai_status_col == s.value, 1), else_=0)).label(s.value)
+            for s in AiStatus
+        ]
+        user_counts = [
+            func.sum(case((user_status_col == s.value, 1), else_=0)).label(s.value)
+            for s in UserStatus
+        ]
+
         stats = self.session.exec(
             select(  # type: ignore[call-overload]
                 func.count().label("total"),
-                func.sum(case((ai_status_col == AiStatus.FIT.value, 1), else_=0)).label("fit"),
-                func.sum(case((ai_status_col == AiStatus.NOT_FIT.value, 1), else_=0)).label(
-                    "not_fit"
-                ),
-                func.sum(case((user_status_col == UserStatus.NEW.value, 1), else_=0)).label("new"),
-                func.sum(case((user_status_col == UserStatus.APPLIED.value, 1), else_=0)).label(
-                    "applied"
-                ),
-                func.sum(
-                    case((user_status_col == UserStatus.WONT_APPLY.value, 1), else_=0)
-                ).label("wont_apply"),
-                func.sum(
-                    case((user_status_col == UserStatus.EMAIL_SENT.value, 1), else_=0)
-                ).label("email_sent"),
+                *ai_counts,
+                *user_counts,
                 func.avg(FilteredJob.score).label("avg_score"),
             )
         ).one()
 
-        return {
-            "total": stats.total or 0,
-            "fit": stats.fit or 0,
-            "not_fit": stats.not_fit or 0,
-            "new": stats.new or 0,
-            "applied": stats.applied or 0,
-            "wont_apply": stats.wont_apply or 0,
-            "email_sent": stats.email_sent or 0,
-            "avg_score": round(stats.avg_score) if stats.avg_score else 0,
-        }
+        result = {"total": stats.total or 0, "avg_score": round(stats.avg_score) if stats.avg_score else 0}
+        for s in AiStatus:
+            result[s.value] = getattr(stats, s.value) or 0
+        for s in UserStatus:
+            result[s.value] = getattr(stats, s.value) or 0
+        return result
 
     def get_all_scores(self) -> list[int]:
         statement = select(FilteredJob.score).order_by(FilteredJob.score.asc())  # type: ignore[arg-type]
@@ -105,14 +103,13 @@ class FilteredJobRepository:
                 func.count().label("applied"),
             )
             .where(updated_at_col >= str(cutoff))
-            .where(user_status_col.in_([UserStatus.APPLIED.value, UserStatus.EMAIL_SENT.value]))
+            .where(user_status_col.in_(APPLIED_VALUES))
             .group_by(day_label)
             .order_by(day_label.asc())
         )
         rows = self.session.exec(statement).all()
         db_data = {r.day: r.applied for r in rows}
 
-        # Fill in all days so the chart always has 7 bars
         result = []
         for i in range(days):
             d = cutoff + timedelta(days=i)
@@ -130,12 +127,7 @@ class FilteredJobRepository:
                 func.count().label("total"),
                 func.sum(
                     case(
-                        (
-                            user_status_col.in_(
-                                [UserStatus.APPLIED.value, UserStatus.EMAIL_SENT.value]
-                            ),
-                            1,
-                        ),
+                        (user_status_col.in_(APPLIED_VALUES), 1),
                         else_=0,
                     )
                 ).label("applied"),
@@ -152,6 +144,15 @@ class FilteredJobRepository:
             }
             for r in rows
         ]
+
+    def get_status_history(self, job_id: str) -> list[dict]:
+        statement = (
+            select(JobStatusHistory)
+            .where(JobStatusHistory.job_id == job_id)
+            .order_by(JobStatusHistory.changed_at.asc())  # type: ignore[arg-type]
+        )
+        rows = self.session.exec(statement).all()
+        return [{"status": r.status, "changed_at": r.changed_at.isoformat()} for r in rows]
 
     def get_distinct_values(self, column: str) -> list[str]:
         col_map = {
@@ -206,17 +207,14 @@ class FilteredJobRepository:
         if location:
             statement = statement.where(FilteredJob.location == location)
 
-        # total count for pagination
         count_statement = select(func.count()).select_from(statement.subquery())
         total = self.session.exec(count_statement).one()
 
-        # sorting
         sort_col = SORTABLE_COLUMNS.get(sort_by, FilteredJob.updated_at)
         statement = statement.order_by(
             sort_col.desc() if sort_order == "desc" else sort_col.asc()  # type: ignore
         )
 
-        # pagination
         statement = statement.offset((page - 1) * page_size).limit(page_size)
 
         return list(self.session.exec(statement).all()), total
