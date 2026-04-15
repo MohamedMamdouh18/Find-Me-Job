@@ -28,6 +28,15 @@ class FilteredJobRepository:
         return self.session.get(FilteredJob, job_id) is not None
 
     def add(self, job: FilteredJob):
+        existing = self.session.get(FilteredJob, job.id)
+        # If the job is entirely new, record its initial status in the history log
+        if not existing:
+            self.session.add(JobStatusHistory(job_id=job.id, status=job.user_status.value))
+        # If the job already exists but its status is changing during this merge, record it
+        elif existing.user_status != job.user_status:
+            self.session.add(JobStatusHistory(job_id=job.id, status=job.user_status.value))
+
+        # Insert or update the main job record
         self.session.merge(job)
 
     def get(self, job_id: str) -> FilteredJob | None:
@@ -62,8 +71,7 @@ class FilteredJobRepository:
         user_status_col = FilteredJob.__table__.c.user_status  # type: ignore[attr-defined]
 
         ai_counts = [
-            func.sum(case((ai_status_col == s.value, 1), else_=0)).label(s.value)
-            for s in AiStatus
+            func.sum(case((ai_status_col == s.value, 1), else_=0)).label(s.value) for s in AiStatus
         ]
         user_counts = [
             func.sum(case((user_status_col == s.value, 1), else_=0)).label(s.value)
@@ -79,7 +87,10 @@ class FilteredJobRepository:
             )
         ).one()
 
-        result = {"total": stats.total or 0, "avg_score": round(stats.avg_score) if stats.avg_score else 0}
+        result = {
+            "total": stats.total or 0,
+            "avg_score": round(stats.avg_score) if stats.avg_score else 0,
+        }
         for s in AiStatus:
             result[s.value] = getattr(stats, s.value) or 0
         for s in UserStatus:

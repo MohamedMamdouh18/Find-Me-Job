@@ -2,7 +2,7 @@ import os
 
 import streamlit as st
 from api import get_filter_options
-from constants import AI_STATUSES, USER_STATUSES, SK_PAGE
+from constants import AI_STATUSES, USER_STATUSES, USER_STATUS_LABELS, SK_PAGE
 
 DEFAULT_MIN_SCORE = int(os.getenv("FILTERING_SCORE", "60"))
 
@@ -76,18 +76,27 @@ def render_jobs_filters() -> dict:
     s1, s2, s3, s4, s5, s6 = st.columns([3, 2, 0.6, 0.8, 0.7, 0.9])
     with s1:
         search = st.text_input(
-            "Search", key="search_input", label_visibility="collapsed",
+            "Search",
+            key="search_input",
+            label_visibility="collapsed",
             placeholder="Search by title, company, or location...",
         )
     with s2:
         min_score = st.slider(
-            "Min Score", 0, 100,
-            key="min_score_slider", on_change=_on_score_slider_change,
+            "Min Score",
+            0,
+            100,
+            key="min_score_slider",
+            on_change=_on_score_slider_change,
         )
     with s3:
         st.number_input(
-            "Score", 0, 100, step=1,
-            key="min_score_input", on_change=_on_score_input_change,
+            "Score",
+            0,
+            100,
+            step=1,
+            key="min_score_input",
+            on_change=_on_score_input_change,
         )
     with s4:
         st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
@@ -102,12 +111,16 @@ def render_jobs_filters() -> dict:
     f1, f2, f3, f4, f5, f6, f7, f8 = st.columns(8)
     with f1:
         ai_status_raw = st.selectbox(
-            "AI Status", ["all"] + AI_STATUSES,
-            key="ai_status_select", on_change=_on_ai_status_change,
+            "AI Status",
+            ["all"] + AI_STATUSES,
+            key="ai_status_select",
+            on_change=_on_ai_status_change,
         )
     with f2:
         user_status_raw = st.selectbox(
-            "User Status", ["all"] + USER_STATUSES,
+            "User Status",
+            ["all"] + USER_STATUSES,
+            format_func=lambda x: "All" if x == "all" else USER_STATUS_LABELS.get(x, x.title()),
             key="user_status_select",
         )
     with f3:
@@ -120,7 +133,8 @@ def render_jobs_filters() -> dict:
         location_raw = st.selectbox("Country", locations, key="location_select")
     with f7:
         sort_by = st.selectbox(
-            "Sort By", ["updated_at", "score", "title", "company", "created_at"],
+            "Sort By",
+            ["updated_at", "score", "title", "company", "created_at"],
             key="sort_by_select",
         )
     with f8:
@@ -129,7 +143,11 @@ def render_jobs_filters() -> dict:
     return {
         "ai_status": _none_if_all(ai_status_raw),
         "user_status": _none_if_all(user_status_raw),
-        "easy_apply": True if easy_apply_raw == "yes" else False if easy_apply_raw == "no" else None,
+        "easy_apply": True
+        if easy_apply_raw == "yes"
+        else False
+        if easy_apply_raw == "no"
+        else None,
         "min_score": min_score,
         "search": search.strip() or None,
         "company": _none_if_all(company_raw),

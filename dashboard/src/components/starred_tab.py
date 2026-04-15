@@ -13,23 +13,58 @@ def _fetch_starred(search: str) -> list[dict]:
     return get_starred_companies(search=search or None)
 
 
+def _clear_star_feedback():
+    if "star_feedback" in st.session_state:
+        del st.session_state["star_feedback"]
+
+
 def render_starred_tab():
     st.markdown('<div class="section-title">Starred Companies</div>', unsafe_allow_html=True)
 
     # ── Add form ──────────────────────────────────────────────────────────────
     with st.expander("➕ Add company", expanded=False):
-        with st.form("add_starred_form", clear_on_submit=True):
+        # Feedback label
+        if "star_feedback" in st.session_state:
+            fb = st.session_state["star_feedback"]
+            color = "green" if fb["success"] else "red"
+            st.markdown(
+                f"<div style='color: {color}; margin-bottom: 10px;'>{fb['msg']}</div>",
+                unsafe_allow_html=True,
+            )
+
+        st_key = st.session_state.get("st_form_key", 0)
+        with st.container():
             name_col, url_col = st.columns(2)
             with name_col:
-                name = st.text_input("Company name *", placeholder="e.g. Google")
+                name = st.text_input(
+                    "Company name *",
+                    placeholder="e.g. Google",
+                    key=f"st_name_{st_key}",
+                    on_change=_clear_star_feedback,
+                )
             with url_col:
-                url = st.text_input("Careers page URL", placeholder="https://careers.company.com")
-            notes = st.text_area("Notes", placeholder="Why you like this company…", height=68)
-            submitted = st.form_submit_button("⭐ Add Company", use_container_width=True)
+                url = st.text_input(
+                    "Careers page URL",
+                    placeholder="https://careers.company.com",
+                    key=f"st_url_{st_key}",
+                    on_change=_clear_star_feedback,
+                )
+            notes = st.text_area(
+                "Notes",
+                placeholder="Why you like this company…",
+                height=68,
+                key=f"st_notes_{st_key}",
+                on_change=_clear_star_feedback,
+            )
+            submitted = st.button("⭐ Add Company", use_container_width=True)
 
         if submitted:
             if not name.strip():
-                st.error("Company name is required.")
+                st.session_state["star_feedback"] = {
+                    "success": False,
+                    "msg": "❌ Company name is required.",
+                }
+                st.rerun()
             else:
                 result = add_starred_company(
                     company_name=name.strip(),
@@ -37,9 +72,18 @@ def render_starred_tab():
                     notes=notes.strip() or None,
                 )
                 if result is None:
-                    st.error(f'"{name}" is already starred or could not be added.')
+                    st.session_state["star_feedback"] = {
+                        "success": False,
+                        "msg": f'❌ "{name}" is already starred or could not be added.',
+                    }
+                    st.rerun()
                 else:
-                    st.success(f'⭐ "{name}" added.')
+                    st.session_state["star_feedback"] = {
+                        "success": True,
+                        "msg": f'✅ "{name}" added successfully.',
+                    }
+                    st.session_state["st_form_key"] = st_key + 1
+
                     st.cache_data.clear()
                     st.rerun()
 

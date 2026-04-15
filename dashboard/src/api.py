@@ -110,6 +110,43 @@ def update_job_status(job_id: str, user_status: str) -> bool:
         return False
 
 
+def add_manual_job(
+    title: str,
+    company: str,
+    location: str,
+    applylink: str = "",
+    website: str = "Manual",
+    description: str = "Added manually via Dashboard",
+    easy_apply: bool = False,
+    user_status: str = "new",
+) -> bool:
+    """
+    Sends a manually created job to the backend to be inserted directly into the
+    FilteredJobs table, bypassing the scraping/pending queues.
+    """
+    import uuid
+
+    try:
+        job_data = {
+            "id": f"manual-{uuid.uuid4()}",  # Generate a unique ID for manual entries
+            "title": title,
+            "company": company,
+            "location": location,
+            "applylink": applylink,
+            "description": description,
+            "website": website,
+            "score": 100,  # Max score so manual jobs appear at the top
+            "easy_apply": easy_apply,
+            "user_status": user_status,  # Initial status chosen by the user
+            "ai_status": "fit",  # Assumed fit since the user manually added it
+        }
+        resp = requests.post(f"{API}/jobs/filtered", json=job_data, timeout=TIMEOUT)
+        return resp.status_code in (200, 201)
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to add manual job")
+        return False
+
+
 def delete_job(job_id: str) -> bool:
     try:
         resp = requests.delete(f"{API}/jobs/filtered/{job_id}", timeout=TIMEOUT)
@@ -121,9 +158,7 @@ def delete_job(job_id: str) -> bool:
 
 def get_job_history(job_id: str) -> list[dict]:
     try:
-        return requests.get(
-            f"{API}/jobs/filtered/{job_id}/history", timeout=TIMEOUT
-        ).json()
+        return requests.get(f"{API}/jobs/filtered/{job_id}/history", timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
         logger.exception("Failed to fetch history for %s", job_id)
         return []
@@ -132,6 +167,7 @@ def get_job_history(job_id: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Starred companies
 # ---------------------------------------------------------------------------
+
 
 def get_starred_companies(search: str | None = None) -> list[dict]:
     try:
