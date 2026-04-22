@@ -36,6 +36,16 @@ def get_scores() -> list[int]:
         return []
 
 
+def get_top_companies(limit: int = 20) -> list[dict]:
+    try:
+        return requests.get(
+            f"{API}/jobs/stats/top-companies", params={"limit": limit}, timeout=TIMEOUT
+        ).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch top companies")
+        return []
+
+
 def get_stats_by_source() -> list:
     try:
         return requests.get(f"{API}/jobs/stats/by-source", timeout=TIMEOUT).json()

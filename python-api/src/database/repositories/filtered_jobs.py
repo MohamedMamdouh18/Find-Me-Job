@@ -83,13 +83,13 @@ class FilteredJobRepository:
                 func.count().label("total"),
                 *ai_counts,
                 *user_counts,
-                func.avg(FilteredJob.score).label("avg_score"),
+                func.avg(FilteredJob.score).label("avg_score"), func.sum(case((FilteredJob.easy_apply == True, 1), else_=0)).label("easy_apply"),
             )
         ).one()
 
         result = {
             "total": stats.total or 0,
-            "avg_score": round(stats.avg_score) if stats.avg_score else 0,
+            "avg_score": round(stats.avg_score) if stats.avg_score else 0, "easy_apply": stats.easy_apply or 0,
         }
         for s in AiStatus:
             result[s.value] = getattr(stats, s.value) or 0
@@ -236,3 +236,18 @@ class FilteredJobRepository:
         statement = statement.offset((page - 1) * page_size).limit(page_size)
 
         return list(self.session.exec(statement).all()), total
+
+    def get_top_companies(self, limit: int = 20) -> list[dict]:
+        company_col = FilteredJob.__table__.c.company  # type: ignore[attr-defined]
+        
+        statement = (
+            select(  # type: ignore[call-overload]
+                company_col.label("company"),
+                func.count().label("job_count"),
+            )
+            .group_by(company_col)
+            .order_by(func.count().desc())
+            .limit(limit)
+        )
+        rows = self.session.exec(statement).all()
+        return [{"company": r.company, "job_count": r.job_count} for r in rows]

@@ -138,3 +138,8 @@ def get_stats_by_source(session: Session = Depends(get_session)):
 @jobs_router.get("/stats/scores")
 def get_scores(session: Session = Depends(get_session)):
     return FilteredJobRepository(session).get_all_scores()
+
+
+@jobs_router.get("/stats/top-companies")
+def get_top_companies(limit: int = 20, session: Session = Depends(get_session)):
+    return FilteredJobRepository(session).get_top_companies(limit)

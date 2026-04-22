@@ -40,23 +40,20 @@ def _clear_filters():
 
 
 def _on_ai_status_change():
-    if st.session_state.ai_status_select != "all":
-        st.session_state.min_score_slider = 0
-        st.session_state.min_score_input = 0
+    st.session_state.min_score_slider = 0
+    st.session_state.min_score_input = 0
 
 
 def _on_score_slider_change():
     st.session_state.min_score_input = st.session_state.min_score_slider
-    if st.session_state.min_score_slider > 0:
-        st.session_state.ai_status_select = "all"
+    st.session_state.ai_status_select = "all"
 
 
 def _on_score_input_change():
     val = max(0, min(100, st.session_state.min_score_input))
     st.session_state.min_score_input = val
     st.session_state.min_score_slider = val
-    if val > 0:
-        st.session_state.ai_status_select = "all"
+    st.session_state.ai_status_select = "all"
 
 
 @st.cache_data(ttl=300)

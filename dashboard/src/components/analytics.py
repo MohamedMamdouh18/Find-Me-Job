@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import streamlit as st
 
-from api import get_stats, get_daily_applied, get_stats_by_source, get_scores
+from api import get_stats, get_daily_applied, get_stats_by_source, get_scores, get_top_companies
 from components.stats import render_stats
 from constants import (
     AI_STATUSES,
@@ -41,6 +41,7 @@ HEATMAP_DAYS = 365
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _build_heatmap_data(daily: list[dict]) -> dict:
     """Transform daily-applied list into a GitHub-style calendar heatmap matrix."""
@@ -107,6 +108,7 @@ def _score_color(ratio: float) -> str:
 # Individual chart builders
 # ---------------------------------------------------------------------------
 
+
 def _ai_status_donut(stats: dict) -> go.Figure:
     fit = stats.get("fit", 0)
     not_fit = stats.get("not_fit", 0)
@@ -124,8 +126,8 @@ def _ai_status_donut(stats: dict) -> go.Figure:
                 ),
                 hole=0.68,
                 pull=[0.03, 0.03],
-                textinfo="label+value+percent",
-                textposition="outside",
+                textinfo="percent",
+                textposition="inside",
                 textfont=dict(size=12),
                 hovertemplate="<b>%{label}</b><br>%{value} jobs (%{percent})<extra></extra>",
             )
@@ -133,13 +135,15 @@ def _ai_status_donut(stats: dict) -> go.Figure:
     )
     fig.add_annotation(
         text=f"<b>{fit_pct}%</b><br><span style='font-size:11px'>fit rate</span>",
-        x=0.5, y=0.5, showarrow=False,
+        x=0.5,
+        y=0.5,
+        showarrow=False,
         font=dict(size=22),
     )
     fig.update_layout(
         title="AI Status",
-        showlegend=False,
-        **CHART_LAYOUT,
+        showlegend=True,
+        **{**CHART_LAYOUT, "margin": dict(t=80, b=40, l=40, r=40)},
     )
     return fig
 
@@ -167,8 +171,8 @@ def _user_status_donut(stats: dict) -> go.Figure:
                 ),
                 hole=0.68,
                 pull=[0.03] * len(labels),
-                textinfo="label+value+percent",
-                textposition="outside",
+                textinfo="percent",
+                textposition="inside",
                 textfont=dict(size=12),
                 hovertemplate="<b>%{label}</b><br>%{value} jobs (%{percent})<extra></extra>",
                 sort=False,
@@ -177,13 +181,15 @@ def _user_status_donut(stats: dict) -> go.Figure:
     )
     fig.add_annotation(
         text=f"<b>{total}</b><br><span style='font-size:11px'>total</span>",
-        x=0.5, y=0.5, showarrow=False,
+        x=0.5,
+        y=0.5,
+        showarrow=False,
         font=dict(size=22),
     )
     fig.update_layout(
         title="User Status",
-        showlegend=False,
-        **CHART_LAYOUT,
+        showlegend=True,
+        **{**CHART_LAYOUT, "margin": dict(t=80, b=40, l=40, r=40)},
     )
     return fig
 
@@ -267,9 +273,7 @@ def _source_bars(source_data: list[dict]) -> go.Figure:
                 textposition="outside",
                 textfont=dict(size=12, family="IBM Plex Mono, monospace"),
                 hovertemplate=(
-                    "<b>%{y}</b><br>"
-                    "Applied: %{x}<br>"
-                    "Total jobs: %{customdata}<extra></extra>"
+                    "<b>%{y}</b><br>Applied: %{x}<br>Total jobs: %{customdata}<extra></extra>"
                 ),
                 customdata=totals,
             )
@@ -315,10 +319,7 @@ def _score_histogram(scores: list[int]) -> go.Figure:
                 text=[str(c) if c > 0 else "" for c in counts],
                 textposition="outside",
                 textfont=dict(size=11, family="IBM Plex Mono, monospace"),
-                hovertemplate=(
-                    "Score %{x}<br>"
-                    "<b>%{y}</b> jobs (%{customdata}%)<extra></extra>"
-                ),
+                hovertemplate=("Score %{x}<br><b>%{y}</b> jobs (%{customdata}%)<extra></extra>"),
                 customdata=pcts,
             )
         ]
@@ -385,9 +386,87 @@ def _yearly_heatmap(daily: list[dict]) -> go.Figure:
     return fig
 
 
+def _easy_apply_donut(stats: dict) -> go.Figure:
+    total = stats.get("total", 0)
+    if total == 0:
+        fig = go.Figure()
+        fig.add_annotation(text="No jobs data", x=0.5, y=0.5, showarrow=False)
+        fig.update_layout(**CHART_LAYOUT)
+        return fig
+
+    easy_apply = stats.get("easy_apply", 0)
+    regular = total - easy_apply
+
+    labels = ["Easy Apply", "Regular"]
+    values = [easy_apply, regular]
+    # Re-use some existing colors or use new ones
+    colors = ["#00B4D8", "#673AB7"]
+
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=labels,
+                values=values,
+                marker=dict(
+                    colors=colors,
+                    line=dict(width=2, color="rgba(0,0,0,0.15)"),
+                ),
+                hole=0.68,
+                pull=[0.03, 0.03],
+                textinfo="percent",
+                textposition="inside",
+                textfont=dict(size=12),
+                hovertemplate="<b>%{label}</b><br>%{value} jobs (%{percent})<extra></extra>",
+            )
+        ]
+    )
+    fig.add_annotation(
+        text=f"<b>{easy_apply}</b><br><span style='font-size:11px'>Easy Apply</span>",
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        font=dict(size=22),
+    )
+    fig.update_layout(
+        title="Easy Apply vs Regular",
+        showlegend=True,
+        **{**CHART_LAYOUT, "margin": dict(t=80, b=40, l=40, r=40)},
+    )
+    return fig
+
+
+def _top_companies_treemap(companies: list[dict]) -> go.Figure:
+    if not companies:
+        fig = go.Figure()
+        fig.add_annotation(text="No top companies data", x=0.5, y=0.5, showarrow=False)
+        fig.update_layout(**CHART_LAYOUT)
+        return fig
+
+    labels = [c["company"] for c in companies]
+    values = [c["job_count"] for c in companies]
+    parents = [""] * len(companies)  # All root elements
+
+    fig = go.Figure(
+        go.Treemap(
+            labels=labels,
+            parents=parents,
+            values=values,
+            textinfo="label+value",
+            hovertemplate="<b>%{label}</b><br>%{value} jobs<extra></extra>",
+            marker=dict(colors=values, colorscale="Tealgrn", showscale=False),
+        )
+    )
+    fig.update_layout(
+        title="Top Companies",
+        **{**CHART_LAYOUT, "margin": dict(t=40, b=10, l=10, r=10)},
+    )
+    return fig
+
+
 # ---------------------------------------------------------------------------
 # Main render
 # ---------------------------------------------------------------------------
+
 
 def render_analytics():
     stats = get_stats()
@@ -412,6 +491,14 @@ def render_analytics():
         scores = get_scores()
         if scores:
             st.plotly_chart(_score_histogram(scores), use_container_width=True)
+
+    col5, col6 = st.columns(2)
+    with col5:
+        st.plotly_chart(_easy_apply_donut(stats), use_container_width=True)
+    with col6:
+        top_companies = get_top_companies(limit=30)
+        if top_companies:
+            st.plotly_chart(_top_companies_treemap(top_companies), use_container_width=True)
 
     daily = get_daily_applied(days=HEATMAP_DAYS)
     if daily:
