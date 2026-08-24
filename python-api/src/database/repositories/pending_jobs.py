@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlmodel import Session, select
+from sqlalchemy import delete
+from sqlmodel import Session, func, select
 
 from ..models import PendingJob
 
@@ -18,6 +19,10 @@ class PendingJobRepository:
     def get(self, job_id: str) -> PendingJob | None:
         return self.session.get(PendingJob, job_id)
 
+    def count(self) -> int:
+        """Depth of the scoring queue — the one number that moves during a run."""
+        return int(self.session.exec(select(func.count()).select_from(PendingJob)).one())
+
     def get_all(self) -> list[PendingJob]:
         statement = select(PendingJob).order_by(PendingJob.created_at.desc())  # type: ignore
         return list(self.session.exec(statement).all())
@@ -30,6 +35,4 @@ class PendingJobRepository:
         return True
 
     def delete_older_than(self, cutoff: datetime):
-        statement = select(PendingJob).where(PendingJob.created_at < cutoff)
-        for job in self.session.exec(statement).all():
-            self.session.delete(job)
+        self.session.execute(delete(PendingJob).where(PendingJob.created_at < cutoff))

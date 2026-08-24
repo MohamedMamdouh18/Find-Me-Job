@@ -8,7 +8,7 @@ email_router = APIRouter(prefix="/api/email", tags=["email"])
 
 
 @email_router.post("/send")
-async def send_application_email(request: SendEmailRequest):
+def send_application_email(request: SendEmailRequest):
     if not email_service:
         return JSONResponse(
             {"error": "SMTP credentials are not configured by the server."}, status_code=500

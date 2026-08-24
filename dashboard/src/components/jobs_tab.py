@@ -1,110 +1,93 @@
 import streamlit as st
+
+import library
 from api import add_manual_job
-from constants import USER_STATUSES, USER_STATUS_LABELS
 from components.jobs_filters import render_jobs_filters
-from components.jobs_table import render_jobs_table
+from components.jobs_list import invalidate_jobs_cache, render_jobs_list
+from components.ui import page_header, summary_line
+from constants import MATCH_CUTOFF, USER_STATUSES, USER_STATUS_LABELS
 
 
-def _clear_manual_job_feedback():
-    if "manual_job_feedback" in st.session_state:
-        del st.session_state["manual_job_feedback"]
+@st.dialog("Add job", width="small")
+def _add_job_dialog():
+    st.caption("Manually tracked jobs skip scraping and scoring and land straight in your list.")
+
+    # Widget state cannot be reassigned once the widget exists in the same run, so
+    # the fields are emptied by moving to a new set of keys instead of clearing them.
+    n = st.session_state.get("mj_nonce", 0)
+
+    title = st.text_input("Job title *", placeholder="Software Engineer", key=f"mj_title_{n}")
+    company = st.text_input("Company *", placeholder="Acme Corp", key=f"mj_company_{n}")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        location = st.text_input("Location", placeholder="Remote", key=f"mj_location_{n}")
+    with c2:
+        status = st.selectbox(
+            "Application status",
+            USER_STATUSES,
+            key=f"mj_status_{n}",
+            format_func=lambda s: USER_STATUS_LABELS.get(s, s.title()),
+        )
+
+    applylink = st.text_input("Application link", placeholder="https://…", key=f"mj_link_{n}")
+    easy_apply = st.checkbox("Easy Apply", key=f"mj_easy_{n}")
+    description = st.text_area(
+        "Notes or description", placeholder="Optional", key=f"mj_description_{n}", height=100
+    )
+
+    cancel_col, add_col = st.columns(2)
+    if cancel_col.button("Cancel", width="stretch", key=f"mj_cancel_{n}"):
+        st.rerun()
+
+    if add_col.button("Add job", width="stretch", type="primary", key=f"mj_submit_{n}"):
+        if not title.strip() or not company.strip():
+            st.error("Title and company are required.")
+            return
+        ok = add_manual_job(
+            title=title.strip(),
+            company=company.strip(),
+            location=location.strip() or "N/A",
+            applylink=applylink.strip(),
+            description=description.strip() or "Added manually via the dashboard",
+            easy_apply=easy_apply,
+            user_status=status,
+        )
+        if not ok:
+            st.error("Could not add the job. Is the API reachable?")
+            return
+        st.session_state["mj_nonce"] = n + 1
+        invalidate_jobs_cache()
+        st.session_state["jobs_flash"] = f"Added {company.strip()} — {title.strip()}."
+        st.rerun()
 
 
 def render_jobs_tab():
-    # ── Add Job Manually Section ──────────────────────────────────────────────
-    # A collapsible form letting the user bypass the AI processing and queueing
-    # by taking basic inputs to immediately persist standard jobs.
-    with st.expander("➕ Add Job Manually", expanded=False):
-        # Feedback label
-        if "manual_job_feedback" in st.session_state:
-            fb = st.session_state["manual_job_feedback"]
-            color = "green" if fb["success"] else "red"
-            st.markdown(
-                f"<div style='color: {color}; margin-bottom: 10px;'>{fb['msg']}</div>",
-                unsafe_allow_html=True,
-            )
+    (add_col,) = page_header(
+        "Jobs", "Everything the pipeline matched, and where each one stands.", actions=1, action_width=1.5
+    )
+    with add_col:
+        if st.button("Add job", width="stretch", type="primary", icon=":material/add:", key="jobs_add"):
+            _add_job_dialog()
 
-        mj_key = st.session_state.get("mj_form_key", 0)
-        with st.container():
-            col1, col2 = st.columns(2)
-            with col1:
-                title = st.text_input(
-                    "Job Title *",
-                    placeholder="Software Engineer",
-                    key=f"mj_title_{mj_key}",
-                    on_change=_clear_manual_job_feedback,
-                )
-                location = st.text_input(
-                    "Location",
-                    placeholder="Remote",
-                    key=f"mj_location_{mj_key}",
-                    on_change=_clear_manual_job_feedback,
-                )
-                status = st.selectbox(
-                    "Status",
-                    options=USER_STATUSES,
-                    format_func=lambda x: USER_STATUS_LABELS.get(x, x.title()),
-                    key=f"mj_status_{mj_key}",
-                    on_change=_clear_manual_job_feedback,
-                )
-            with col2:
-                company = st.text_input(
-                    "Company *",
-                    placeholder="Acme Corp",
-                    key=f"mj_company_{mj_key}",
-                    on_change=_clear_manual_job_feedback,
-                )
-                applylink = st.text_input(
-                    "Application Link",
-                    placeholder="https://...",
-                    key=f"mj_applylink_{mj_key}",
-                    on_change=_clear_manual_job_feedback,
-                )
+    counts = library.stats()
+    summary_line(
+        [
+            (counts["total"], "scored"),
+            (counts["matched"], "matched"),
+            (counts["strong"], "strong"),
+            (counts["new"], "new"),
+        ],
+        trailing=f"matched means scored {MATCH_CUTOFF} or above",
+    )
 
-            easy_apply = st.checkbox(
-                "Easy Apply", key=f"mj_easy_apply_{mj_key}", on_change=_clear_manual_job_feedback
-            )
-            description = st.text_area(
-                "Job Description",
-                placeholder="Brief description (optional)",
-                key=f"mj_description_{mj_key}",
-                on_change=_clear_manual_job_feedback,
-            )
+    toast = st.session_state.pop("job_toast", None)
+    if toast:
+        st.toast(toast, icon="✅")
 
-            submitted = st.button("Submit Job", use_container_width=True)
+    flash = st.session_state.pop("jobs_flash", None)
+    if flash:
+        st.success(flash)
 
-        if submitted:
-            if not title.strip() or not company.strip():
-                st.session_state["manual_job_feedback"] = {
-                    "success": False,
-                    "msg": "❌ Title and Company are required.",
-                }
-                st.rerun()
-            else:
-                success = add_manual_job(
-                    title=title.strip(),
-                    company=company.strip(),
-                    location=location.strip() or "N/A",
-                    applylink=applylink.strip(),
-                    description=description.strip() or "Added manually via Dashboard",
-                    easy_apply=easy_apply,
-                    user_status=status,
-                )
-                if success:
-                    st.session_state["manual_job_feedback"] = {
-                        "success": True,
-                        "msg": f"✅ Successfully added manual job at {company}!",
-                    }
-                    st.session_state["mj_form_key"] = mj_key + 1
-
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.session_state["manual_job_feedback"] = {
-                        "success": False,
-                        "msg": "❌ Failed to add job.",
-                    }
-                    st.rerun()
-
-    filters = render_jobs_filters()
-    render_jobs_table(filters)
+    filters = render_jobs_filters(counts)
+    render_jobs_list(filters, counts["total"])

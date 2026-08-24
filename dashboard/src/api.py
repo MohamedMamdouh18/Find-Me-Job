@@ -1,18 +1,28 @@
 import logging
+import os
+import uuid
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from constants import EMPTY_STATS
 
 logger = logging.getLogger(__name__)
 
-API = "http://python-api:8001/api"
+API = os.getenv("API_URL", "http://python-api:8001/api")
 TIMEOUT = 5
+
+# One pooled session for the whole app — a new TCP connection per widget
+# interaction is pure latency on a page that reruns constantly.
+_session = requests.Session()
+_adapter = HTTPAdapter(pool_connections=4, pool_maxsize=16, max_retries=1)
+_session.mount("http://", _adapter)
+_session.mount("https://", _adapter)
 
 
 def get_stats() -> dict:
     try:
-        return requests.get(f"{API}/jobs/stats", timeout=TIMEOUT).json()
+        return _session.get(f"{API}/jobs/stats", timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
         logger.exception("Failed to fetch job stats")
         return EMPTY_STATS.copy()
@@ -20,7 +30,7 @@ def get_stats() -> dict:
 
 def get_daily_applied(days: int = 7) -> list:
     try:
-        return requests.get(
+        return _session.get(
             f"{API}/jobs/stats/daily-applied", params={"days": days}, timeout=TIMEOUT
         ).json()
     except (requests.RequestException, ValueError):
@@ -28,17 +38,27 @@ def get_daily_applied(days: int = 7) -> list:
         return []
 
 
-def get_scores() -> list[int]:
+def get_score_distribution() -> list[dict]:
+    """Pre-binned score histogram — the API does the bucketing, not the browser."""
     try:
-        return requests.get(f"{API}/jobs/stats/scores", timeout=TIMEOUT).json()
+        return _session.get(f"{API}/jobs/stats/score-distribution", timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
-        logger.exception("Failed to fetch scores")
+        logger.exception("Failed to fetch score distribution")
         return []
+
+
+def get_funnel() -> dict:
+    """Arrivals per pipeline stage, counted from the status log."""
+    try:
+        return _session.get(f"{API}/jobs/stats/funnel", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch the funnel")
+        return {"matched": 0, "applied": 0, "interviewing": 0, "offers": 0, "events": 0}
 
 
 def get_top_companies(limit: int = 20) -> list[dict]:
     try:
-        return requests.get(
+        return _session.get(
             f"{API}/jobs/stats/top-companies", params={"limit": limit}, timeout=TIMEOUT
         ).json()
     except (requests.RequestException, ValueError):
@@ -48,7 +68,7 @@ def get_top_companies(limit: int = 20) -> list[dict]:
 
 def get_stats_by_source() -> list:
     try:
-        return requests.get(f"{API}/jobs/stats/by-source", timeout=TIMEOUT).json()
+        return _session.get(f"{API}/jobs/stats/by-source", timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
         logger.exception("Failed to fetch stats by source")
         return []
@@ -56,10 +76,22 @@ def get_stats_by_source() -> list:
 
 def get_filter_options() -> dict:
     try:
-        return requests.get(f"{API}/jobs/filtered/options", timeout=TIMEOUT).json()
+        return _session.get(f"{API}/jobs/filtered/options", timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
         logger.exception("Failed to fetch filter options")
         return {"companies": [], "websites": [], "locations": []}
+
+
+def get_dashboard_public_url() -> str | None:
+    try:
+        resp = _session.get(f"{API}/params/dashboard-url", timeout=TIMEOUT)
+        if resp.status_code != 200:
+            return None
+        url = resp.json().get("url", "")
+        return url.strip() or None
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch dashboard public URL")
+        return None
 
 
 def get_filtered_jobs(
@@ -76,11 +108,17 @@ def get_filtered_jobs(
     sort_order: str,
     page: int,
     page_size: int,
+    max_score: int = 100,
+    include_body: bool = False,
+    include_keywords: bool = False,
 ) -> dict:
     params: dict = {
         "page": page,
         "page_size": page_size,
+        "include_body": include_body,
+        "include_keywords": include_keywords,
         "min_score": min_score,
+        "max_score": max_score,
         "sort_by": sort_by,
         "sort_order": sort_order,
     }
@@ -101,15 +139,39 @@ def get_filtered_jobs(
     if starred_only:
         params["starred_only"] = True
     try:
-        return requests.get(f"{API}/jobs/filtered", params=params, timeout=TIMEOUT).json()
+        return _session.get(f"{API}/jobs/filtered", params=params, timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
         logger.exception("Failed to fetch filtered jobs")
         return {"rows": [], "total": 0, "pages": 1}
 
 
+def get_filtered_job(job_id: str) -> dict | None:
+    """Fetch one job in full, including the description and application document."""
+    try:
+        resp = _session.get(f"{API}/jobs/filtered/{job_id}", timeout=TIMEOUT)
+        if resp.status_code != 200:
+            return None
+        job = resp.json()
+        return job if job and job.get("id") else None
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch job %s", job_id)
+        return None
+
+
+def get_job_match(job_id: str) -> dict:
+    """Which CV skills the posting names. Keyword overlap, not the scorer's own
+    reasoning — the scoring node returns a number and a cover letter, nothing else."""
+    try:
+        resp = _session.get(f"{API}/jobs/filtered/{job_id}/match", timeout=TIMEOUT)
+        return resp.json() if resp.status_code == 200 else {}
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch match evidence for %s", job_id)
+        return {}
+
+
 def update_job_status(job_id: str, user_status: str) -> bool:
     try:
-        resp = requests.patch(
+        resp = _session.patch(
             f"{API}/jobs/filtered/{job_id}/status",
             json={"user_status": user_status},
             timeout=TIMEOUT,
@@ -134,8 +196,6 @@ def add_manual_job(
     Sends a manually created job to the backend to be inserted directly into the
     FilteredJobs table, bypassing the scraping/pending queues.
     """
-    import uuid
-
     try:
         job_data = {
             "id": f"manual-{uuid.uuid4()}",  # Generate a unique ID for manual entries
@@ -150,7 +210,7 @@ def add_manual_job(
             "user_status": user_status,  # Initial status chosen by the user
             "ai_status": "fit",  # Assumed fit since the user manually added it
         }
-        resp = requests.post(f"{API}/jobs/filtered", json=job_data, timeout=TIMEOUT)
+        resp = _session.post(f"{API}/jobs/filtered", json=job_data, timeout=TIMEOUT)
         return resp.status_code in (200, 201)
     except (requests.RequestException, ValueError):
         logger.exception("Failed to add manual job")
@@ -159,7 +219,7 @@ def add_manual_job(
 
 def delete_job(job_id: str) -> bool:
     try:
-        resp = requests.delete(f"{API}/jobs/filtered/{job_id}", timeout=TIMEOUT)
+        resp = _session.delete(f"{API}/jobs/filtered/{job_id}", timeout=TIMEOUT)
         return resp.status_code == 200
     except (requests.RequestException, ValueError):
         logger.exception("Failed to delete job %s", job_id)
@@ -168,7 +228,7 @@ def delete_job(job_id: str) -> bool:
 
 def get_job_history(job_id: str) -> list[dict]:
     try:
-        return requests.get(f"{API}/jobs/filtered/{job_id}/history", timeout=TIMEOUT).json()
+        return _session.get(f"{API}/jobs/filtered/{job_id}/history", timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
         logger.exception("Failed to fetch history for %s", job_id)
         return []
@@ -182,7 +242,7 @@ def get_job_history(job_id: str) -> list[dict]:
 def get_starred_companies(search: str | None = None) -> list[dict]:
     try:
         params = {"search": search} if search else {}
-        return requests.get(f"{API}/starred", params=params, timeout=TIMEOUT).json()
+        return _session.get(f"{API}/starred", params=params, timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
         logger.exception("Failed to fetch starred companies")
         return []
@@ -191,7 +251,7 @@ def get_starred_companies(search: str | None = None) -> list[dict]:
 def get_starred_names() -> list[str]:
     """Return all starred company names (lowercase) for bulk client-side checks."""
     try:
-        return requests.get(f"{API}/starred/names", timeout=TIMEOUT).json()
+        return _session.get(f"{API}/starred/names", timeout=TIMEOUT).json()
     except (requests.RequestException, ValueError):
         logger.exception("Failed to fetch starred company names")
         return []
@@ -203,7 +263,7 @@ def add_starred_company(
     notes: str | None = None,
 ) -> dict | None:
     try:
-        resp = requests.post(
+        resp = _session.post(
             f"{API}/starred",
             json={"company_name": company_name, "careers_url": careers_url, "notes": notes},
             timeout=TIMEOUT,
@@ -218,7 +278,7 @@ def add_starred_company(
 
 def delete_starred_company(id: int) -> bool:
     try:
-        resp = requests.delete(f"{API}/starred/{id}", timeout=TIMEOUT)
+        resp = _session.delete(f"{API}/starred/{id}", timeout=TIMEOUT)
         return resp.status_code == 200
     except (requests.RequestException, ValueError):
         logger.exception("Failed to delete starred company %s", id)
@@ -231,7 +291,7 @@ def update_starred_company(
     notes: str | None = None,
 ) -> bool:
     try:
-        resp = requests.patch(
+        resp = _session.patch(
             f"{API}/starred/{id}",
             json={"careers_url": careers_url, "notes": notes},
             timeout=TIMEOUT,
@@ -244,7 +304,7 @@ def update_starred_company(
 
 def toggle_starred_company(company_name: str) -> dict:
     try:
-        resp = requests.post(
+        resp = _session.post(
             f"{API}/starred/toggle",
             json={"company_name": company_name},
             timeout=TIMEOUT,
@@ -253,3 +313,272 @@ def toggle_starred_company(company_name: str) -> dict:
     except (requests.RequestException, ValueError):
         logger.exception("Failed to toggle starred company %s", company_name)
         return {"is_starred": False}
+
+
+# ---------------------------------------------------------------------------
+# Blocked companies
+# ---------------------------------------------------------------------------
+
+
+def get_blocked_companies(search: str | None = None) -> list[dict]:
+    try:
+        params = {"search": search} if search else {}
+        return _session.get(f"{API}/blocked", params=params, timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch blocked companies")
+        return []
+
+
+def get_blocked_names() -> list[str]:
+    try:
+        return _session.get(f"{API}/blocked/names", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch blocked company names")
+        return []
+
+
+def add_blocked_company(company_name: str, reason: str | None = None) -> dict | None:
+    try:
+        resp = _session.post(
+            f"{API}/blocked",
+            json={"company_name": company_name, "reason": reason},
+            timeout=TIMEOUT,
+        )
+        return resp.json() if resp.status_code in (200, 201) else None
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to block company %s", company_name)
+        return None
+
+
+def delete_blocked_company(id: int) -> bool:
+    try:
+        return _session.delete(f"{API}/blocked/{id}", timeout=TIMEOUT).status_code == 200
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to unblock company %s", id)
+        return False
+
+
+def update_blocked_company(id: int, reason: str | None = None) -> bool:
+    try:
+        resp = _session.patch(f"{API}/blocked/{id}", json={"reason": reason}, timeout=TIMEOUT)
+        return resp.status_code == 200
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to update blocked company %s", id)
+        return False
+
+
+def toggle_blocked_company(company_name: str) -> dict:
+    try:
+        return _session.post(
+            f"{API}/blocked/toggle", json={"company_name": company_name}, timeout=TIMEOUT
+        ).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to toggle blocked company %s", company_name)
+        return {"is_blocked": False}
+
+
+# ---------------------------------------------------------------------------
+# Params, CV, runs, export, backup
+# ---------------------------------------------------------------------------
+
+
+def get_param(name: str) -> str | None:
+    try:
+        resp = _session.get(f"{API}/params/{name}", timeout=TIMEOUT)
+        return resp.json().get("param") if resp.status_code == 200 else None
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to read param %s", name)
+        return None
+
+
+def put_param(name: str, content: str) -> tuple[bool, str]:
+    try:
+        resp = _session.put(f"{API}/params/{name}", json={"content": content}, timeout=TIMEOUT)
+        if resp.status_code == 200:
+            return True, "Saved"
+        return False, _error_detail(resp)
+    except (requests.RequestException, ValueError) as e:
+        logger.exception("Failed to write param %s", name)
+        return False, str(e)
+
+
+def upload_cv(filename: str, data: bytes) -> tuple[bool, str]:
+    try:
+        resp = _session.post(
+            f"{API}/cv/upload",
+            files={
+                "file": (
+                    filename,
+                    data,
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            body = resp.json()
+            return True, f"Uploaded {body['bytes']:,} bytes ({body['characters']:,} characters)"
+        return False, _error_detail(resp)
+    except (requests.RequestException, ValueError) as e:
+        logger.exception("Failed to upload CV")
+        return False, str(e)
+
+
+def get_cv_keywords() -> dict:
+    """The extracted titles/skills the scraper actually searches on."""
+    try:
+        return _session.get(f"{API}/cv/keywords", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch CV keywords")
+        return {"keywords": None, "cv_hash": None, "updated_at": None}
+
+
+def download_cv_file() -> bytes | None:
+    try:
+        resp = _session.get(f"{API}/cv/file", timeout=30)
+        return resp.content if resp.status_code == 200 else None
+    except requests.RequestException:
+        logger.exception("Failed to download the CV")
+        return None
+
+
+def get_pending_count() -> int:
+    try:
+        return int(_session.get(f"{API}/jobs/pending/count", timeout=TIMEOUT).json()["count"])
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        logger.exception("Failed to fetch the pending queue depth")
+        return 0
+
+
+def delete_all_jobs() -> tuple[bool, str]:
+    try:
+        resp = _session.delete(
+            f"{API}/jobs/filtered", params={"confirm": "delete-all-jobs"}, timeout=60
+        )
+        if resp.status_code == 200:
+            return True, f"Deleted {resp.json().get('deleted', 0)} jobs."
+        return False, _error_detail(resp)
+    except (requests.RequestException, ValueError) as e:
+        logger.exception("Failed to clear the jobs table")
+        return False, str(e)
+
+
+def get_cv_info() -> dict:
+    try:
+        return _session.get(f"{API}/cv/info", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch CV info")
+        return {"exists": False}
+
+
+def get_runs(limit: int = 20) -> list[dict]:
+    try:
+        return _session.get(f"{API}/runs", params={"limit": limit}, timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch run history")
+        return []
+
+
+def export_jobs(
+    fmt: str = "csv", include_body: bool = False, ai_status: str | None = None
+) -> bytes | None:
+    params: dict = {"format": fmt, "include_body": include_body}
+    if ai_status:
+        params["ai_status"] = ai_status
+    try:
+        resp = _session.get(f"{API}/jobs/export", params=params, timeout=120)
+        return resp.content if resp.status_code == 200 else None
+    except requests.RequestException:
+        logger.exception("Failed to export jobs")
+        return None
+
+
+def download_backup() -> bytes | None:
+    try:
+        resp = _session.get(f"{API}/backup", timeout=120)
+        return resp.content if resp.status_code == 200 else None
+    except requests.RequestException:
+        logger.exception("Failed to download backup")
+        return None
+
+
+def _error_detail(resp) -> str:
+    try:
+        return str(resp.json().get("detail", resp.text))[:300]
+    except ValueError:
+        return f"HTTP {resp.status_code}"
+
+
+N8N_URL = os.getenv("N8N_URL", "http://n8n:5678").rstrip("/")
+N8N_RUN_PATH = os.getenv("N8N_RUN_WEBHOOK_PATH", "find-me-job-run")
+N8N_API_KEY = os.getenv("N8N_API_KEY", "").strip()
+
+
+def get_n8n_status() -> dict:
+    """Is n8n up, and is the main workflow listening?
+
+    `workflow` is authoritative only when N8N_API_KEY is set. Without a key the
+    webhook probe is a GET against a POST-only path, so n8n's own 404 text is the
+    only signal available — hence the explicit "unknown" state rather than a guess.
+    """
+    result = {"reachable": False, "workflow": "unknown", "detail": ""}
+    try:
+        health = _session.get(f"{N8N_URL}/healthz", timeout=3)
+        result["reachable"] = health.status_code == 200
+    except requests.RequestException as e:
+        result["detail"] = str(e)
+        return result
+
+    if not result["reachable"]:
+        result["detail"] = f"n8n returned HTTP {health.status_code} on /healthz"
+        return result
+
+    if N8N_API_KEY:
+        try:
+            resp = _session.get(
+                f"{N8N_URL}/api/v1/workflows",
+                params={"active": "true"},
+                headers={"X-N8N-API-KEY": N8N_API_KEY},
+                timeout=4,
+            )
+            if resp.status_code == 200:
+                active = resp.json().get("data", [])
+                result["workflow"] = "active" if active else "inactive"
+                return result
+            result["detail"] = f"n8n API key rejected (HTTP {resp.status_code})"
+        except (requests.RequestException, ValueError):
+            logger.exception("n8n API workflow check failed")
+
+    try:
+        probe = _session.get(f"{N8N_URL}/webhook/{N8N_RUN_PATH}", timeout=3)
+        body = probe.text.lower()
+        # Both n8n 404s say "not registered", so the method-mismatch wording has to be
+        # matched first: it is the one that proves the path resolved, i.e. active.
+        if "not registered for get requests" in body:
+            result["workflow"] = "active"
+        elif "not registered" in body:
+            result["workflow"] = "inactive"
+            result["detail"] = "The main workflow is not active in n8n."
+        elif probe.status_code < 500:
+            result["workflow"] = "active"
+    except requests.RequestException:
+        result["workflow"] = "unknown"
+    return result
+
+
+def trigger_n8n_run() -> tuple[bool, str]:
+    """POST to the main workflow's webhook. Requires the workflow to be Active in n8n."""
+    base = N8N_URL
+    path = N8N_RUN_PATH
+    try:
+        resp = _session.post(f"{base}/webhook/{path}", json={"source": "dashboard"}, timeout=15)
+        if resp.status_code in (200, 201, 204):
+            return True, "Run triggered."
+        if resp.status_code == 404:
+            return False, (
+                "n8n returned 404 for the webhook. Open n8n and toggle "
+                "'Scraping Main Workflow' to Active, then try again."
+            )
+        return False, f"n8n returned HTTP {resp.status_code}."
+    except requests.RequestException as e:
+        return False, f"Could not reach n8n: {e}"

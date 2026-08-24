@@ -6,3 +6,5 @@ from .filtered_job import FilteredJob
 from .job_status_history import JobStatusHistory
 from .cv_keywords import CVKeywords
 from .starred_company import StarredCompany
+from .blocked_company import BlockedCompany
+from .workflow_run import WorkflowRun

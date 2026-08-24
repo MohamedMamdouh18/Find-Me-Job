@@ -47,9 +47,14 @@ USER_BADGE_CLASS = {
     USER_WONT_APPLY: "badge-wont",
 }
 
-# Chart display labels and colors
+# Chart display labels and colors — sourced from the validated palette in theme.py
+from theme import (  # noqa: E402
+    AQUA, BLUE, CRITICAL, GOOD, NEUTRAL, ORANGE, SEQ, VIOLET, WARNING,
+)
+
 AI_STATUS_LABELS = {AI_FIT: "Fit", AI_NOT_FIT: "Not Fit"}
-AI_STATUS_COLORS = {AI_FIT: "#4ade80", AI_NOT_FIT: "#f87171"}
+# Fit is the subject; "not fit" recedes to neutral instead of shouting red.
+AI_STATUS_COLORS = {AI_FIT: BLUE, AI_NOT_FIT: NEUTRAL}
 
 USER_STATUS_LABELS = {
     USER_NEW: "New",
@@ -63,16 +68,18 @@ USER_STATUS_LABELS = {
     USER_WONT_APPLY: "Won't Apply",
 }
 
+# The pipeline is ordered, so the live stages walk one hue from light to dark;
+# terminal outcomes step outside that ramp so they read as endings, not stages.
 USER_STATUS_COLORS = {
-    USER_NEW: "#60a5fa",
-    USER_APPLIED: "#4ade80",
-    USER_EMAIL_SENT: "#22d3ee",
-    USER_REFERRAL: "#a78bfa",
-    USER_ASSESSMENT: "#facc15",
-    USER_INTERVIEW: "#fb923c",
-    USER_OFFER: "#34d399",
-    USER_REJECTED: "#f87171",
-    USER_WONT_APPLY: "#94a3b8",
+    USER_NEW: SEQ[250],
+    USER_APPLIED: SEQ[350],
+    USER_EMAIL_SENT: SEQ[400],
+    USER_REFERRAL: SEQ[450],
+    USER_ASSESSMENT: SEQ[500],
+    USER_INTERVIEW: SEQ[600],
+    USER_OFFER: GOOD,
+    USER_REJECTED: CRITICAL,
+    USER_WONT_APPLY: NEUTRAL,
 }
 
 # Empty stats fallback
@@ -82,32 +89,28 @@ EMPTY_STATS = {
     AI_NOT_FIT: 0,
     **{s: 0 for s in USER_STATUSES},
     "avg_score": 0,
+    "easy_apply": 0,
 }
 
-# Heatmap color scale (dark-to-green, GitHub-style)
-HEATMAP_COLORSCALE = [
-    [0.0, "#161b22"],
-    [0.01, "#0e4429"],
-    [0.25, "#006d32"],
-    [0.5, "#26a641"],
-    [1.0, "#39d353"],
-]
+# Heatmap: single hue, light -> dark. The old scale started at near-black and
+# painted a solid dark grid onto a light page.
+from theme import SEQUENTIAL_SCALE as HEATMAP_COLORSCALE  # noqa: E402,F401
 
-# Source chart palette
-SOURCE_COLORS = [
-    "#4ade80", "#60a5fa", "#f59e0b", "#f87171", "#a78bfa",
-    "#22d3ee", "#fb923c", "#e879f9", "#34d399", "#fbbf24",
-]
+# Sources are identities, so fixed categorical slots in order — never cycled.
+SOURCE_COLORS = [BLUE, ORANGE, AQUA, WARNING, VIOLET]
 
-# Shared chart layout — no hardcoded font_color so Streamlit theme applies
-CHART_LAYOUT = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    margin=dict(t=40, b=20, l=20, r=20),
-    legend=dict(font=dict(size=11)),
+from theme import CHART_LAYOUT  # noqa: E402,F401
+
+# Score thresholds live with the colours that encode them, so a band and its
+# label can never drift apart. Re-exported here because every page imports
+# constants and almost none import theme directly.
+from theme import (  # noqa: E402,F401
+    BAND_LABELS, MATCH_CUTOFF, STRONG_SCORE, score_band,
 )
 
 # Cross-file session state keys
 SK_PAGE = "page"
 SK_FILTER_KEY = "filter_key"
-SK_SELECTED_JOB_INDEX = "selected_job_index"
+SK_SELECTED_JOB_ID = "selected_job_id"
+SK_SELECT_MODE = "jobs_select_mode"
+SK_CHECKED_JOB_IDS = "checked_job_ids"

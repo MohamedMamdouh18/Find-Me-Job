@@ -13,7 +13,9 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "timeout": 30000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
@@ -26,7 +28,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const items = $input.all();\nconst jobs = Array.isArray(items) ? items.slice(1) : [];\nconst keywords = $('Start').first()?.json._firstItem?.keywords;\n\nfunction wordPattern(term) {\n  const escaped = term.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  return new RegExp(`(?:^|[\\\\s,;/()\\\\[\\\\]|•·–—-])${escaped}(?:$|[\\\\s,;/()\\\\[\\\\]|•·–—-])`, 'i');\n}\n\nconst titlePatterns   = keywords.titles.map(t => wordPattern(t));\nconst skillPatterns   = keywords.skills.map(s => wordPattern(s));\n\nfunction cleanDescription(html) {\n  if (!html) return '';\n  return html\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&#\\d+;/g, ' ')\n    .replace(/&\\w+;/g, ' ')\n    .replace(/Â/g, '')\n    .replace(/Please mention the word.*$/s, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst TITLE_BONUS = 10;\nconst SKILL_POINTS = 3;\nconst MIN_SCORE = 6;\n\nconst scored = jobs.map(job => {\n  const title = job.json.position ?? '';\n  const desc = cleanDescription(job.json.description ?? job.json.tags?.join(', ') ?? '');\n  const fullText = `${title} ${desc}`;\n\n  let score = 0;\n  const matched = [];\n\n  if (titlePatterns.some(re => re.test(fullText))) score += TITLE_BONUS;\n\n  for (let i = 0; i < skillPatterns.length; i++) {\n    if (skillPatterns[i].test(fullText)) {\n      score += SKILL_POINTS;\n      matched.push(keywords.skills[i]);\n    }\n  }\n\n  return { job, score, matched };\n});\n\nconst filtered = scored\n  .filter(s => s.score >= MIN_SCORE)\n  .sort((a, b) => b.score - a.score);\n\nreturn filtered.map(({ job, score, matched }) => ({\n  json: {\n    jobid: job.json.id,\n    title: job.json.position,\n    company: job.json.company,\n    location: \"Remote\",\n    applyLink: job.json.url,\n    description: cleanDescription(job.json.description ?? job.json.tags?.join(', ') ?? ''),\n    source: 'remoteok',\n    _score: score,\n    _matched: matched\n  }\n}));"
+        "jsCode": "const items = $input.all();\nconst jobs = Array.isArray(items) ? items.slice(1) : [];\nconst keywords = $('Start').first()?.json._firstItem?.keywords;\n\nfunction wordPattern(term) {\n  const escaped = term.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  return new RegExp(`(?:^|[\\\\s,;/()\\\\[\\\\]|\u2022\u00b7\u2013\u2014-])${escaped}(?:$|[\\\\s,;/()\\\\[\\\\]|\u2022\u00b7\u2013\u2014-])`, 'i');\n}\n\nconst titlePatterns   = keywords.titles.map(t => wordPattern(t));\nconst skillPatterns   = keywords.skills.map(s => wordPattern(s));\n\nfunction cleanDescription(html) {\n  if (!html) return '';\n  return html\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&#\\d+;/g, ' ')\n    .replace(/&\\w+;/g, ' ')\n    .replace(/\u00c2/g, '')\n    .replace(/Please mention the word.*$/s, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst TITLE_BONUS = 10;\nconst SKILL_POINTS = 3;\nconst MIN_SCORE = 6;\n\nconst scored = jobs.map(job => {\n  const title = job.json.position ?? '';\n  const desc = cleanDescription(job.json.description ?? job.json.tags?.join(', ') ?? '');\n  const fullText = `${title} ${desc}`;\n\n  let score = 0;\n  const matched = [];\n\n  if (titlePatterns.some(re => re.test(fullText))) score += TITLE_BONUS;\n\n  for (let i = 0; i < skillPatterns.length; i++) {\n    if (skillPatterns[i].test(fullText)) {\n      score += SKILL_POINTS;\n      matched.push(keywords.skills[i]);\n    }\n  }\n\n  return { job, score, matched };\n});\n\nconst filtered = scored\n  .filter(s => s.score >= MIN_SCORE)\n  .sort((a, b) => b.score - a.score);\n\nreturn filtered.map(({ job, score, matched }) => ({\n  json: {\n    jobid: job.json.id,\n    title: job.json.position,\n    company: job.json.company,\n    location: \"Remote\",\n    applyLink: job.json.url,\n    description: cleanDescription(job.json.description ?? job.json.tags?.join(', ') ?? ''),\n    source: 'remoteok',\n    _score: score,\n    _matched: matched\n  }\n}));"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -63,7 +65,7 @@
           "conditions": [
             {
               "id": "4e86279f-34fa-4b86-990e-a21f3a1172da",
-              "leftValue": "={{ $json.exists }}",
+              "leftValue": "={{ $json.skip }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -94,10 +96,16 @@
             {
               "name": "jobid",
               "value": "=remoteok_{{ $json.jobid }}"
+            },
+            {
+              "name": "company",
+              "value": "={{ $json.company }}"
             }
           ]
         },
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
@@ -145,7 +153,9 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,

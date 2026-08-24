@@ -1,0 +1,19 @@
+# Pinned so the app's chrome and its CSS token layer always agree.
+# Streamlit 1.55 exposes no theme CSS variables, so the palette lives in src/theme.py.
+[theme]
+base = "light"
+primaryColor = "#2a78d6"
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#f2f2ef"
+textColor = "#0b0b0b"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
+
+[browser]
+gatherUsageStats = false
+
+[server]
+enableStaticServing = false
