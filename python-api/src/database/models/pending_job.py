@@ -15,4 +15,4 @@ class PendingJob(BaseModel, table=True):
     description: str
     website: str
     easy_apply: bool = Field(default=False)
-    created_at: datetime = Field(default_factory=now)
+    created_at: datetime = Field(default_factory=now, index=True)

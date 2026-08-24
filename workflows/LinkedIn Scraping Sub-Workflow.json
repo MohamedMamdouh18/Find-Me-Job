@@ -31,7 +31,9 @@
     {
       "parameters": {
         "url": "={{ $json.url }}",
-        "options": {}
+        "options": {
+          "timeout": 25000
+        }
       },
       "id": "49170e9f-54b0-4a66-9b7e-dbd065d43166",
       "name": "Fetch Jobs from Linkedin",
@@ -40,12 +42,17 @@
         -112,
         1056
       ],
-      "typeVersion": 4.2
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
         "url": "={{ $('Loop Over Items').item.json.url }}",
-        "options": {}
+        "options": {
+          "timeout": 20000
+        }
       },
       "id": "7c9263b5-81e8-4665-932c-981ffd5962da",
       "name": "Fetch Job Page",
@@ -57,8 +64,9 @@
       "executeOnce": false,
       "retryOnFail": true,
       "typeVersion": 4.2,
-      "waitBetweenTries": 5000,
-      "onError": "continueRegularOutput"
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "maxTries": 2
     },
     {
       "parameters": {
@@ -164,7 +172,9 @@
     {
       "parameters": {
         "url": "http://python-api:8001/api/params/linkedin_searches",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
@@ -200,7 +210,7 @@
           "conditions": [
             {
               "id": "4e86279f-34fa-4b86-990e-a21f3a1172da",
-              "leftValue": "={{ $json.exists }}",
+              "leftValue": "={{ $json.skip }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -263,7 +273,9 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
@@ -276,7 +288,7 @@
     },
     {
       "parameters": {
-        "jsCode": "return $input.all().map(item => {\n  const raw = item.json.links;\n  const url = Array.isArray(raw) ? raw[0] : String(raw);\n  const jobId = url.match(/(\\d+)\\?/)?.[1] || url.match(/(\\d+)$/)?.[1];\n  \n  return {\n    json: {\n      url: url.split('?')[0],\n      jobid: `linkedin_${jobId}`\n    }\n  };\n});"
+        "jsCode": "return $input.all().flatMap(item => {\n  const raw = item.json.links;\n  const url = Array.isArray(raw) ? raw[0] : String(raw);\n  const jobId = url.match(/(\\d+)\\?/)?.[1] || url.match(/(\\d+)$/)?.[1];\n\n  // Without this guard every unparseable URL collapses onto the single id\n  // \"linkedin_undefined\", so the first one stored makes all the rest look seen.\n  if (!jobId) return [];\n\n  return [{\n    json: {\n      url: url.split('?')[0],\n      jobid: `linkedin_${jobId}`\n    }\n  }];\n});"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -313,7 +325,9 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,

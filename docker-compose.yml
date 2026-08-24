@@ -6,19 +6,22 @@ services:
     container_name: n8n
     restart: unless-stopped
     ports:
-      - "5678:5678"
+      - "${N8N_PORT_HOST:-5678}:5678"
     env_file: .env
     volumes:
       - ./data/n8n:/home/node/.n8n
       - ./data/db:/data/db
       - ./workflows:/workflows
     depends_on:
-      - python-api
+      python-api:
+        condition: service_healthy
 
   python-api:
     build:
       context: ./python-api
       dockerfile: Dockerfile
+      args:
+        APP_UID: ${APP_UID:-1000}
     container_name: find-me-job-python-api
     restart: unless-stopped
     environment:
@@ -33,32 +36,48 @@ services:
       - SENDER_NAME=${SENDER_NAME}
     volumes:
       - ./data/db:/data/db
+      # writable: the dashboard Settings tab replaces the CV and edits params
       - ./cv.docx:/data/cv.docx
       - ./params:/data/params
     ports:
-      - "8001:8001"
-    depends_on:
-      - cloudflared
+      # host port only — n8n and the dashboard reach the API at python-api:8001
+      # internally, so change API_PORT freely if 8001 is taken on your machine.
+      # Bound to loopback: these endpoints are unauthenticated and include the CV,
+      # a full database backup, and SMTP send.
+      - "127.0.0.1:${API_PORT:-8001}:8001"
 
   dashboard:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
+      args:
+        APP_UID: ${APP_UID:-1000}
     container_name: find-me-job-dashboard
     restart: unless-stopped
     environment:
+      # relative timestamps ("12 min ago") are computed against the container clock,
+      # and rows carry naive local timestamps written by python-api
+      - TZ=${GENERIC_TIMEZONE:-UTC}
       - FILTERING_SCORE=${FILTERING_SCORE:-60}
       - SENDER_NAME=${SENDER_NAME:-}
       - SMTP_USER=${SMTP_USER:-}
+      # internal address used to trigger a run; N8N_PUBLIC_URL is the link shown to you
+      - N8N_URL=http://n8n:5678
+      - N8N_PUBLIC_URL=${N8N_PUBLIC_URL:-http://localhost:5678}
+      - N8N_RUN_WEBHOOK_PATH=${N8N_RUN_WEBHOOK_PATH:-find-me-job-run}
     ports:
-      - "8501:8501"
+      - "${DASHBOARD_PORT:-8501}:8501"
     depends_on:
-      - python-api
+      python-api:
+        condition: service_healthy
 
   cloudflared:
     image: cloudflare/cloudflared:2026.3.0
     container_name: find-me-job-tunnel
     restart: unless-stopped
-    command: tunnel --url http://dashboard:8501
-    ports:
-      - "20241:20241"
+    # Metrics address is set explicitly so python-api can always scrape the
+    # quick-tunnel URL from http://cloudflared:20241/metrics.
+    command: tunnel --url http://dashboard:8501 --metrics 0.0.0.0:20241
+    depends_on:
+      dashboard:
+        condition: service_healthy

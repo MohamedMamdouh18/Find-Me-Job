@@ -44,3 +44,23 @@ Thumbs.db
 *.swo
 
 cv.docx
+# user-specific search config (dashboard writes it); ship the .example instead
+params/linkedin_searches.txt
+# host-specific compose overrides
+docker-compose.override.yml
+
+# Database / config backups (created by setup.sh and by manual snapshots)
+*.bak
+*.bak-*
+*.db.bak*
+.env.backup.*
+
+# Dashboard data exports
+jobs-*.csv
+jobs-*.json
+jobs-backup-*.db
+
+# Playwright / test scratch
+.playwright/
+test-results/
+
