@@ -5,5 +5,5 @@ sqlmodel==0.0.37
 alembic==1.18.4
 apscheduler==3.11.0
 httpx==0.28.1
-python-multipart==0.0.20
+python-multipart==0.0.30
 pytest==8.4.1
