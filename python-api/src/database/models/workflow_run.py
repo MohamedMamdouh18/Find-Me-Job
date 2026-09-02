@@ -19,3 +19,5 @@ class WorkflowRun(BaseModel, table=True):
     jobs_scored: int = Field(default=0)  # rows written to filtered_jobs
     jobs_matched: int = Field(default=0)  # of those, ai_status == fit
     error: Optional[str] = None
+    stage: Optional[str] = None
+    stage_detail: Optional[str] = None

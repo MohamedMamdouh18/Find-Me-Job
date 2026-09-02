@@ -509,76 +509,33 @@ def _error_detail(resp) -> str:
         return f"HTTP {resp.status_code}"
 
 
-N8N_URL = os.getenv("N8N_URL", "http://n8n:5678").rstrip("/")
-N8N_RUN_PATH = os.getenv("N8N_RUN_WEBHOOK_PATH", "find-me-job-run")
-N8N_API_KEY = os.getenv("N8N_API_KEY", "").strip()
-
-
-def get_n8n_status() -> dict:
-    """Is n8n up, and is the main workflow listening?
-
-    `workflow` is authoritative only when N8N_API_KEY is set. Without a key the
-    webhook probe is a GET against a POST-only path, so n8n's own 404 text is the
-    only signal available — hence the explicit "unknown" state rather than a guess.
-    """
-    result = {"reachable": False, "workflow": "unknown", "detail": ""}
+def trigger_run() -> tuple[bool, str]:
+    """POST to /api/runs/trigger to start the python pipeline in the background."""
     try:
-        health = _session.get(f"{N8N_URL}/healthz", timeout=3)
-        result["reachable"] = health.status_code == 200
-    except requests.RequestException as e:
-        result["detail"] = str(e)
-        return result
-
-    if not result["reachable"]:
-        result["detail"] = f"n8n returned HTTP {health.status_code} on /healthz"
-        return result
-
-    if N8N_API_KEY:
-        try:
-            resp = _session.get(
-                f"{N8N_URL}/api/v1/workflows",
-                params={"active": "true"},
-                headers={"X-N8N-API-KEY": N8N_API_KEY},
-                timeout=4,
-            )
-            if resp.status_code == 200:
-                active = resp.json().get("data", [])
-                result["workflow"] = "active" if active else "inactive"
-                return result
-            result["detail"] = f"n8n API key rejected (HTTP {resp.status_code})"
-        except (requests.RequestException, ValueError):
-            logger.exception("n8n API workflow check failed")
-
-    try:
-        probe = _session.get(f"{N8N_URL}/webhook/{N8N_RUN_PATH}", timeout=3)
-        body = probe.text.lower()
-        # Both n8n 404s say "not registered", so the method-mismatch wording has to be
-        # matched first: it is the one that proves the path resolved, i.e. active.
-        if "not registered for get requests" in body:
-            result["workflow"] = "active"
-        elif "not registered" in body:
-            result["workflow"] = "inactive"
-            result["detail"] = "The main workflow is not active in n8n."
-        elif probe.status_code < 500:
-            result["workflow"] = "active"
-    except requests.RequestException:
-        result["workflow"] = "unknown"
-    return result
-
-
-def trigger_n8n_run() -> tuple[bool, str]:
-    """POST to the main workflow's webhook. Requires the workflow to be Active in n8n."""
-    base = N8N_URL
-    path = N8N_RUN_PATH
-    try:
-        resp = _session.post(f"{base}/webhook/{path}", json={"source": "dashboard"}, timeout=15)
-        if resp.status_code in (200, 201, 204):
+        resp = _session.post(f"{API}/runs/trigger", timeout=10)
+        if resp.status_code in (200, 201, 202):
             return True, "Run triggered."
-        if resp.status_code == 404:
-            return False, (
-                "n8n returned 404 for the webhook. Open n8n and toggle "
-                "'Scraping Main Workflow' to Active, then try again."
-            )
-        return False, f"n8n returned HTTP {resp.status_code}."
+        return False, _error_detail(resp)
     except requests.RequestException as e:
-        return False, f"Could not reach n8n: {e}"
+        return False, f"Could not reach API: {e}"
+
+
+
+def get_current_run() -> dict | None:
+    """Fetch live in-process progress and countdown from /api/runs/current."""
+    try:
+        resp = _session.get(f"{API}/runs/current", timeout=TIMEOUT)
+        if resp.status_code == 200:
+            return resp.json()
+        return None
+    except (requests.RequestException, ValueError):
+        return None
+
+
+def get_run_events(run_id: int) -> list[dict]:
+    """Fetch event history and failure payloads for a specific run."""
+    try:
+        return _session.get(f"{API}/runs/{run_id}/events", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch events for run %s", run_id)
+        return []

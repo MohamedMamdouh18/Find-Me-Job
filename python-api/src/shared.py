@@ -35,18 +35,22 @@ if SMTP_USER and SMTP_APP_PASSWORD:
     )
 
 
-async def send_telegram(message: str):
+from apscheduler.schedulers.background import BackgroundScheduler
+
+scheduler = BackgroundScheduler(timezone=TIMEZONE)
+
+
+def send_telegram(message: str):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_ID")
     if not token or not chat_id:
         return
     try:
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": message},
-                timeout=5,
-            )
+        httpx.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": message},
+            timeout=5,
+        )
     except Exception as e:
         print(f"Telegram notification failed: {e}")
 
@@ -79,10 +83,13 @@ async def detect_tunnel_url_and_send_notification():
                 first = not DASHBOARD_URL
                 DASHBOARD_URL = url
                 print(f"Tunnel URL {'detected' if first else 'changed'}: {url}", flush=True)
-                await send_telegram(
-                    f"🚀 Find Me a Job is up!\n Dashboard: {url}"
+                # send_telegram blocks on an HTTP call; off-thread so a slow or
+                # unreachable Telegram cannot stall the event loop.
+                await asyncio.to_thread(
+                    send_telegram,
+                    f"Find Me a Job is up!\n Dashboard: {url}"
                     if first
-                    else f"🔄 Tunnel URL changed\n Dashboard: {url}"
+                    else f"Tunnel URL changed\n Dashboard: {url}",
                 )
 
             attempt += 1

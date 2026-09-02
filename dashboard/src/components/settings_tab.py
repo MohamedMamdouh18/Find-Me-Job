@@ -19,13 +19,15 @@ from api import (
     download_backup,
     download_cv_file,
     export_jobs,
+    get_current_run,
     get_cv_info,
     get_cv_keywords,
     get_filtered_jobs,
     get_param,
+    get_run_events,
     get_runs,
     put_param,
-    trigger_n8n_run,
+    trigger_run,
     upload_cv,
 )
 from components.styles import empty_state
@@ -38,8 +40,6 @@ from components.ui import (
     section_head,
     status_dot,
 )
-
-N8N_PUBLIC_URL = os.getenv("N8N_PUBLIC_URL", "http://localhost:5678")
 
 # The LinkedIn sub-workflow reads these seven keys by name and calls .split() on
 # several of them, so every row must carry all seven as strings — never null.
@@ -96,9 +96,9 @@ def _health() -> dict:
     counts = library.stats()
     hlth = library.health()
     return {
-        "n8n": hlth["n8n"],
+        "current_run": hlth.get("current_run"),
         "stats": counts,
-        "last_run": hlth["last_run"],
+        "last_run": hlth.get("last_run"),
         "queue": counts["queue"],
     }
 
@@ -156,23 +156,6 @@ def _render_flash():
 # ── status strip ────────────────────────────────────────────────────────────
 
 
-def _n8n_state(n8n: dict) -> tuple[str, str, str]:
-    """Is the n8n service itself answering — separate from whether the workflow is on."""
-    host = N8N_PUBLIC_URL.split("//")[-1].rstrip("/")
-    if n8n.get("reachable"):
-        return "ok", "Up", host
-    return "fail", "Down", f"no answer from {host}"
-
-
-def _workflow_state(n8n: dict) -> tuple[str, str, str]:
-    if not n8n.get("reachable"):
-        return "idle", "Unknown", "n8n is not answering"
-    return {
-        "active": ("ok", "Active", "listening on the webhook"),
-        "inactive": ("warn", "Inactive", "toggle it on in n8n"),
-    }.get(n8n.get("workflow", "unknown"), ("idle", "Unknown", "set N8N_API_KEY to be sure"))
-
-
 def _last_run_state(run: dict | None) -> tuple[str, str, str]:
     if not run:
         return "idle", "Never", "no run has reported in"
@@ -189,52 +172,58 @@ def _last_run_state(run: dict | None) -> tuple[str, str, str]:
     return "ok", f"Done · {when}", note
 
 
+def _pipeline_state(curr: dict | None, last: dict | None) -> tuple[str, str, str]:
+    if curr:
+        stage = curr.get("stage", "running")
+        detail = curr.get("detail", "In progress")
+        return "ok", f"Running · {stage}", detail
+    if not last:
+        return "idle", "Ready", "No run recorded yet"
+    when = relative_time(last.get("started_at"))
+    if last.get("status") == "failed":
+        return "fail", f"Failed · {when}", last.get("error") or "Check run history"
+    return "ok", f"Ready · {when}", f"{last.get('jobs_scored', 0)} scored · {last.get('jobs_matched', 0)} matched"
+
+
 @st.fragment(run_every=HEALTH_TTL)
 def _status_strip():
     """Polls on its own so the page never reruns underneath the user's cursor."""
     health = _health()
     stats = health["stats"]
+    curr = health.get("current_run")
+    last = health.get("last_run")
 
-    wf_tone, wf_text, wf_note = _workflow_state(health["n8n"])
-    n8n_tone, n8n_text, n8n_note = _n8n_state(health["n8n"])
-    run_tone, run_text, run_note = _last_run_state(health["last_run"])
+    pipe_tone, pipe_text, pipe_note = _pipeline_state(curr, last)
+    run_tone, run_text, run_note = _last_run_state(last)
     total = stats.get("total", 0) or 0
     matched = stats.get("fit", 0) or 0
     queue = health["queue"]
 
     with st.container(border=True, key="status_strip"):
-        cols = st.columns(5, gap="medium")
+        cols = st.columns(4, gap="medium")
         cols[0].markdown(
-            readout(
-                "Workflow", status_dot(wf_tone, wf_text), wf_note,
-                tip="Whether 'Scraping Main Workflow' is switched on in n8n. Nothing "
-                    "scrapes or scores while it is off.",
-                # "toggle it on in n8n" used to be advice with nowhere to go.
-                link=N8N_PUBLIC_URL if wf_tone != "ok" else "",
-            ),
+            readout("Pipeline", status_dot(pipe_tone, pipe_text), pipe_note),
             unsafe_allow_html=True,
         )
         cols[1].markdown(
-            readout("n8n", status_dot(n8n_tone, n8n_text), n8n_note), unsafe_allow_html=True
+            readout("Last run", status_dot(run_tone, run_text), run_note),
+            unsafe_allow_html=True,
         )
         cols[2].markdown(
-            readout("Last run", status_dot(run_tone, run_text), run_note), unsafe_allow_html=True
-        )
-        cols[3].markdown(
             readout(
-                "Scored", f"{total:,}", f"{matched:,} matched",
-                tip="Rows in the jobs table. Matched means the AI scored them at or "
-                    "above your cutoff.",
+                "Scored",
+                f"{total:,}",
+                f"{matched:,} matched",
+                tip="Rows in the jobs table. Matched means the AI scored them at or above your cutoff.",
             ),
             unsafe_allow_html=True,
         )
-        cols[4].markdown(
+        cols[3].markdown(
             readout(
-                "Queue", f"{queue:,}", "waiting to be scored" if queue else "empty",
-                # 53 queued beside 10 in the database reads like a bug until you
-                # know they are two different tables at two different stages.
-                tip="Scraped but not yet scored. They appear under Jobs as the scorer "
-                    "works through them, which only happens while the workflow is active.",
+                "Queue",
+                f"{queue:,}",
+                "waiting to be scored" if queue else "empty",
+                tip="Scraped but not yet scored. They appear under Jobs as the scorer works through them.",
             ),
             unsafe_allow_html=True,
         )
@@ -256,126 +245,51 @@ def _duration(started: str | None, finished: str | None) -> str:
     return f" · {seconds}s" if seconds < 60 else f" · {seconds // 60}m {seconds % 60}s"
 
 
-def _await_run(previous_id, deadline: int = 20) -> dict | None:
-    """Wait for n8n to record a new run. Bounded, because a long block would
-    freeze the whole session — after this the status strip takes over."""
-    end = time.monotonic() + deadline
-    while time.monotonic() < end:
-        time.sleep(2)
-        runs = get_runs(1)
-        if runs and runs[0].get("id") != previous_id:
-            return runs[0]
-    return None
-
-
+@st.fragment(run_every=2)
 def _render_workflow(health: dict):
-    n8n = health["n8n"]
-    reachable = bool(n8n.get("reachable"))
-    inactive = n8n.get("workflow") == "inactive"
-
+    curr = get_current_run()
     with st.container(border=True):
         section_head(
-            "Run the scraper",
-            "Posts to the n8n webhook, then waits for the workflow to report back.",
+            "Job Pipeline",
+            "Scrapes configured job sources, extracts CV keywords, scores job matches, and prepares applications.",
         )
 
-        blocked = not reachable or inactive
-        if blocked:
-            # A dead end otherwise: the strip said "toggle it on in n8n" while the
-            # primary button underneath it stayed lit and would 404 on every press.
-            st.warning(
-                f"Can't reach n8n at {N8N_PUBLIC_URL}."
-                if not reachable
-                else "The webhook is not registered, so a run cannot start. Switch "
-                     "**Scraping Main Workflow** to Active in n8n, then reload."
-            )
+        if curr:
+            stage = curr.get("stage", "running")
+            detail = curr.get("detail", "")
+            done = curr.get("done", 0)
+            total = curr.get("total", 0)
+            rem = curr.get("seconds_remaining")
 
-        run_col, open_col, _ = st.columns([2, 2, 5], vertical_alignment="center")
-        with run_col:
-            run_clicked = st.button(
-                "Run now",
-                type="primary",
-                icon=":material/play_arrow:",
-                disabled=blocked,
-                width="stretch",
-                help=(
-                    f"Can't reach n8n at {N8N_PUBLIC_URL}"
-                    if not reachable
-                    else "Activate the workflow in n8n first"
-                    if inactive
-                    else None
-                ),
-                key="run_now",
-            )
-        with open_col:
-            st.link_button(
-                "Activate in n8n" if blocked else "Open in n8n",
-                N8N_PUBLIC_URL,
-                width="stretch",
-                icon=":material/open_in_new:",
-                type="primary" if blocked else "secondary",
-            )
+            st.markdown(f"### Running: `{stage}`")
+            st.markdown(f"**{escape(detail)}**")
 
-        if run_clicked:
-            _do_run(health)
+            if rem is not None and rem > 0:
+                st.info(f"Waiting {rem}s before next scoring call (rate limit pacing)")
 
-        error = st.session_state.get("run_error")
-        if error:
-            _render_run_failure(error)
+            if total > 0:
+                pct = min(1.0, max(0.0, done / total))
+                st.progress(pct, text=f"{done} of {total} completed")
 
-        st.markdown('<div class="card-rule"></div>', unsafe_allow_html=True)
-        _render_last_run(health["last_run"])
-
-
-def _do_run(health: dict):
-    st.session_state.pop("run_error", None)
-    previous = (health["last_run"] or {}).get("id")
-
-    with st.status("Starting run…", expanded=True) as status:
-        st.write("Posting to the n8n webhook…")
-        ok, msg = trigger_n8n_run()
-        if not ok:
-            status.update(label="Run failed", state="error")
-            st.session_state["run_error"] = msg
-            _invalidate_settings()
-            # Rerun so the persistent failure block is the only thing on screen —
-            # a collapsed status transcript beside it says the same thing twice.
-            st.rerun()
-
-        st.write("Accepted. Waiting for n8n to record the run…")
-        run = _await_run(previous)
-        _invalidate_settings()
-        if run:
-            status.update(label=f"Run #{run['id']} started", state="complete")
-            st.write(f"n8n reported run #{run['id']} ({run.get('trigger', 'manual')}).")
-            st.toast(f"Run #{run['id']} started", icon="✅")
+            events = curr.get("events", [])
+            if events:
+                st.markdown('<div class="detail-label">Recent events</div>', unsafe_allow_html=True)
+                for ev in reversed(events):
+                    lvl = ev.get("level", "info")
+                    st.text(f"[{ev.get('stage')}] ({lvl}) {ev.get('message')}")
         else:
-            status.update(label="Accepted — still starting", state="complete")
-            st.write(
-                "n8n took the request but has not recorded a run yet. "
-                "Progress shows up in the status strip and under History."
-            )
-            st.toast("Run triggered", icon="✅")
+            run_col, _ = st.columns([2, 5], vertical_alignment="center")
+            with run_col:
+                if st.button("Run now", type="primary", icon=":material/play_arrow:", width="stretch", key="run_now"):
+                    ok, msg = trigger_run()
+                    if ok:
+                        st.toast("Run started in background", icon="✅")
+                    else:
+                        st.error(f"Failed to start run: {msg}")
+                    st.rerun()
 
-
-def _render_run_failure(msg: str):
-    with st.container(border=True, key="run_failure"):
-        st.markdown(
-            f'<div class="failure-title">Run failed</div>'
-            f'<div class="failure-body">{escape(msg)}</div>'
-            '<div class="failure-body">The workflow may be inactive in n8n, or the '
-            "container may be down.</div>",
-            unsafe_allow_html=True,
-        )
-        a, b, _ = st.columns([2, 2, 5])
-        with a:
-            st.link_button(
-                "Open in n8n", N8N_PUBLIC_URL, width="stretch", icon=":material/open_in_new:"
-            )
-        with b:
-            if st.button("Dismiss", width="stretch", key="dismiss_run_error"):
-                st.session_state.pop("run_error", None)
-                st.rerun()
+            st.markdown('<div class="card-rule"></div>', unsafe_allow_html=True)
+            _render_last_run(health.get("last_run"))
 
 
 def _render_last_run(run: dict | None):
@@ -860,10 +774,8 @@ def _render_history():
         if not runs:
             empty_state(
                 "📋", "No runs recorded yet",
-                "Runs appear here once the workflow reports in. If you have already run it "
-                "from n8n, check that <b>Scraping Main Workflow</b> is Active and that its "
-                "<b>Start Run</b> and <b>Finish Run</b> nodes point at "
-                "<code>http://python-api:8001/api/runs</code>.",
+                "Runs appear here after the pipeline runs. Use <b>Run now</b> on the "
+                "Workflow tab to start one.",
             )
             go_col, _ = st.columns([2, 6])
             with go_col:
@@ -921,6 +833,8 @@ def _render_run_detail(run: dict):
         f"run_id      {run.get('id')}",
         f"trigger     {run.get('trigger')}",
         f"status      {run.get('status')}",
+        f"stage       {run.get('stage') or '—'}",
+        f"detail      {run.get('stage_detail') or '—'}",
         f"started_at  {run.get('started_at')}",
         f"finished_at {run.get('finished_at') or '—'}",
         f"scraped     {run.get('jobs_scraped', 0)}",
@@ -930,6 +844,21 @@ def _render_run_detail(run: dict):
     st.code("\n".join(lines), language=None)
     if run.get("error"):
         st.error(run["error"])
+
+    # Stage 6b: Event history drill-down with expandable context
+    run_id = run.get("id")
+    if run_id:
+        events = get_run_events(run_id)
+        if events:
+            st.markdown('<div class="detail-label">Event log & context</div>', unsafe_allow_html=True)
+            for ev in events:
+                lvl = ev.get("level", "info")
+                badge = "[ERROR]" if lvl == "error" else "[WARN]" if lvl == "warning" else "[INFO]"
+                st.markdown(f"**`{badge}` `[{ev.get('stage')}]`** {escape(ev.get('message', ''))}")
+                ctx = ev.get("context")
+                if ctx:
+                    with st.expander(f"Payload context ({ev.get('stage')})"):
+                        st.code(ctx, language="json" if ctx.startswith("{") else None)
 
 
 # ── page ────────────────────────────────────────────────────────────────────

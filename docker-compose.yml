@@ -1,21 +1,4 @@
 services:
-  n8n:
-    build:
-      context: ./n8n
-      dockerfile: Dockerfile
-    container_name: n8n
-    restart: unless-stopped
-    ports:
-      - "${N8N_PORT_HOST:-5678}:5678"
-    env_file: .env
-    volumes:
-      - ./data/n8n:/home/node/.n8n
-      - ./data/db:/data/db
-      - ./workflows:/workflows
-    depends_on:
-      python-api:
-        condition: service_healthy
-
   python-api:
     build:
       context: ./python-api
@@ -27,6 +10,11 @@ services:
     environment:
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
       - DELETE_OLD_JOBS_DAYS=${DELETE_OLD_JOBS_DAYS}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_URL=${LLM_URL}
+      - LLM_MODEL=${LLM_MODEL}
+      - FILTERING_SCORE=${FILTERING_SCORE:-60}
+      - AUTO_EMAIL=${AUTO_EMAIL:-}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ID=${TELEGRAM_ID}
       - SMTP_HOST=${SMTP_HOST}
@@ -40,7 +28,7 @@ services:
       - ./cv.docx:/data/cv.docx
       - ./params:/data/params
     ports:
-      # host port only — n8n and the dashboard reach the API at python-api:8001
+      # host port only — the dashboard reaches the API at python-api:8001
       # internally, so change API_PORT freely if 8001 is taken on your machine.
       # Bound to loopback: these endpoints are unauthenticated and include the CV,
       # a full database backup, and SMTP send.
@@ -61,10 +49,6 @@ services:
       - FILTERING_SCORE=${FILTERING_SCORE:-60}
       - SENDER_NAME=${SENDER_NAME:-}
       - SMTP_USER=${SMTP_USER:-}
-      # internal address used to trigger a run; N8N_PUBLIC_URL is the link shown to you
-      - N8N_URL=http://n8n:5678
-      - N8N_PUBLIC_URL=${N8N_PUBLIC_URL:-http://localhost:5678}
-      - N8N_RUN_WEBHOOK_PATH=${N8N_RUN_WEBHOOK_PATH:-find-me-job-run}
     ports:
       - "${DASHBOARD_PORT:-8501}:8501"
     depends_on:

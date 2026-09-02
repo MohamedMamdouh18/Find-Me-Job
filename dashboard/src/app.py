@@ -18,7 +18,7 @@ st.set_page_config(
 inject_styles()
 
 # The sidebar status block polls on its own; this is the slow backstop that
-# picks up rows written by n8n while the tab sat idle.
+# picks up rows written by the pipeline while the tab sat idle.
 st_autorefresh(interval=5 * 60 * 1000, key="autorefresh")
 
 PAGE_RENDERERS = {

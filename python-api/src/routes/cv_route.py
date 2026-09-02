@@ -18,26 +18,23 @@ class KeywordsRequest(BaseModel):
     keywords: str
 
 
-def _docx_text(doc) -> str:
-    """python-docx keeps table cells out of `doc.paragraphs`, and CVs routinely put
-    skills and dates in tables, so reading paragraphs alone silently drops them."""
-    parts = [p.text for p in doc.paragraphs if p.text.strip()]
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                if cell.text.strip():
-                    parts.append(cell.text.strip())
-    return "\n".join(parts)
+from ..services.cv import _docx_text
 
 
 @cv_router.get("")
 def get_cv():
+    if not os.path.isfile(CV_PATH):
+        raise HTTPException(status_code=404, detail="CV file not found. Please upload a .docx CV in Settings.")
     try:
         doc = Document(CV_PATH)
         text = _docx_text(doc)
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="CV file contains no readable text.")
         return {"cv_text": text}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not read CV: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Could not read CV document ({e}). Please upload a valid .docx file.")
 
 
 MAX_CV_BYTES = 10 * 1024 * 1024

@@ -34,13 +34,17 @@ def goto(page: str):
     st.session_state[GOTO_KEY] = page
 
 
-def _workflow_line(n8n: dict) -> tuple[str, str]:
-    if not n8n.get("reachable"):
-        return "fail", "n8n unreachable"
-    return {
-        "active": ("ok", "Workflow active"),
-        "inactive": ("warn", "Workflow inactive"),
-    }.get(n8n.get("workflow", "unknown"), ("idle", "Workflow unknown"))
+def _pipeline_line(hlth: dict) -> tuple[str, str]:
+    curr = hlth.get("current_run")
+    if curr:
+        stage = curr.get("stage", "running")
+        return "ok", f"Running · {stage}"
+    last = hlth.get("last_run")
+    if not last:
+        return "idle", "Pipeline ready"
+    if last.get("status") == "failed":
+        return "fail", "Last run failed"
+    return "ok", "Pipeline ready"
 
 
 @st.fragment(run_every=STRIP_TTL)
@@ -48,7 +52,7 @@ def _status_block():
     """Polls on its own so the page body never reruns underneath the cursor."""
     counts = library.stats()
     hlth = library.health()
-    tone, text = _workflow_line(hlth["n8n"])
+    tone, text = _pipeline_line(hlth)
     run = hlth["last_run"]
     when = relative_time(run.get("started_at")) if run else "never"
 

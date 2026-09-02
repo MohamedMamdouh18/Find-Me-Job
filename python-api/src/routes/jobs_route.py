@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import Session
 
 from ..database import get_session
-from ..database.models import FilteredJob, PendingJob
+from ..database.models import FilteredJob
 from ..database.models.enums import AiStatus, UserStatus
 from ..database.repositories import (
     BlockedCompanyRepository,
@@ -16,9 +16,10 @@ from ..database.repositories import (
     PendingJobRepository,
     SeenJobRepository,
 )
+from ..services.intake import save_pending_job
 from ..services.match_evidence import evidence, matched_skills, parse_keywords
 from ..shared import now
-from .requests_scheme.jobs import PendingJobRequest, FilteredJobRequest, StatusUpdate
+from ..schemas.jobs import PendingJobRequest, FilteredJobRequest, StatusUpdate
 
 jobs_router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -35,17 +36,9 @@ def job_exists(
 
 @jobs_router.post("/pending")
 def add_pending_job(job: PendingJobRequest, session: Session = Depends(get_session)):
-    # Blocklist is enforced here rather than in the scrapers, so every source gets it
-    # for free and a blocked company never costs an LLM call. The job is still recorded
-    # as seen so it is not re-fetched on every subsequent run.
-    if BlockedCompanyRepository(session).is_blocked(job.company):
-        SeenJobRepository(session).add(job.id)
-        session.commit()
+    status = save_pending_job(session, job)
+    if status == "blocked":
         return {"status": "blocked", "company": job.company}
-
-    SeenJobRepository(session).add(job.id)
-    PendingJobRepository(session).add(PendingJob(**job.model_dump()))
-    session.commit()
     return {"status": "ok"}
 
 

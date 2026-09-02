@@ -5,7 +5,7 @@ from sqlmodel import Session
 
 from ..database import get_session
 from ..database.repositories.starred_companies import StarredCompanyRepository
-from .requests_scheme.starred import StarredCompanyCreate, StarredCompanyUpdate, StarredCompanyToggle
+from ..schemas.starred import StarredCompanyCreate, StarredCompanyUpdate, StarredCompanyToggle
 
 starred_router = APIRouter(prefix="/api/starred", tags=["starred"])
 

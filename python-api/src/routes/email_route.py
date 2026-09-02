@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from .requests_scheme.email import SendEmailRequest
+from ..schemas.email import SendEmailRequest
 from ..shared import email_service
 
 email_router = APIRouter(prefix="/api/email", tags=["email"])

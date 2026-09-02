@@ -20,9 +20,9 @@ import streamlit as st
 
 from api import (
     get_blocked_companies,
+    get_current_run,
     get_daily_applied,
     get_funnel,
-    get_n8n_status,
     get_pending_count,
     get_runs,
     get_score_distribution,
@@ -69,7 +69,7 @@ def funnel() -> dict:
 def health() -> dict:
     runs = get_runs(1)
     return {
-        "n8n": get_n8n_status(),
+        "current_run": get_current_run(),
         "last_run": runs[0] if runs else None,
         "fetched_at": datetime.now().isoformat(),
     }
@@ -115,24 +115,21 @@ def attention(counts: dict, hlth: dict) -> list[dict]:
     list means nothing needs doing, and the section hides itself.
     """
     items: list[dict] = []
-    n8n = hlth.get("n8n") or {}
     queue = counts.get("queue", 0)
-    workflow_off = n8n.get("workflow") == "inactive"
+    current_run = hlth.get("current_run")
+    last_run = hlth.get("last_run")
 
-    if not n8n.get("reachable"):
+    if current_run:
+        items.append({
+            "tone": "ok",
+            "text": f"Pipeline is running: {current_run.get('stage', 'in progress')}.",
+            "action": "View live", "page": "Settings",
+        })
+    elif last_run and last_run.get("status") == "failed":
         items.append({
             "tone": "fail",
-            "text": "n8n is not answering, so nothing can scrape or score.",
-            "action": "Open Settings", "page": "Settings",
-        })
-    elif workflow_off:
-        items.append({
-            "tone": "warn",
-            "text": (
-                f"The workflow is inactive"
-                + (f" and {queue:,} jobs are waiting to be scored." if queue else ".")
-            ),
-            "action": "Open Settings", "page": "Settings",
+            "text": f"Last run failed: {last_run.get('error', 'unknown error')}.",
+            "action": "Check Run", "page": "Settings",
         })
     elif queue:
         items.append({

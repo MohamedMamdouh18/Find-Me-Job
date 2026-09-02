@@ -7,9 +7,11 @@ from alembic.config import Config
 from alembic import command
 
 from ..shared import now
+from ..services import settings
 from .repositories import (
     FilteredJobRepository,
     PendingJobRepository,
+    RunEventRepository,
     SeenJobRepository,
     WorkflowRunRepository,
 )
@@ -58,11 +60,12 @@ def _is_empty_database() -> bool:
 
 
 def delete_old_jobs():
-    deletion_old_jobs_days = int(os.getenv("DELETE_OLD_JOBS_DAYS") or 60)
+    deletion_old_jobs_days = settings.get_delete_old_jobs_days()
     cutoff = now() - timedelta(days=deletion_old_jobs_days)
     with Session(engine) as session:
         PendingJobRepository(session).delete_older_than(cutoff)
         FilteredJobRepository(session).delete_older_than(cutoff)
         SeenJobRepository(session).delete_older_than(cutoff)
+        RunEventRepository(session).delete_older_than(cutoff)
         WorkflowRunRepository(session).delete_older_than(cutoff)
         session.commit()

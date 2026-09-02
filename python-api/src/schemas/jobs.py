@@ -2,7 +2,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from ...database.models.enums import AiStatus, UserStatus
+from ..database.models.enums import AiStatus, UserStatus
 
 
 class PendingJobRequest(BaseModel):

@@ -6,6 +6,7 @@ from .seen_jobs import SeenJobRepository
 from .starred_companies import StarredCompanyRepository
 from .blocked_companies import BlockedCompanyRepository
 from .workflow_runs import WorkflowRunRepository
+from .run_events import RunEventRepository
 
 __all__ = [
     "CVKeywordsRepository",
@@ -16,4 +17,5 @@ __all__ = [
     "StarredCompanyRepository",
     "BlockedCompanyRepository",
     "WorkflowRunRepository",
+    "RunEventRepository",
 ]

@@ -24,9 +24,6 @@ env/
 # Jupyter Notebooks
 .ipynb_checkpoints/
 
-# n8n
-.n8n/
-n8n-data/
 *.db
 
 # Logs

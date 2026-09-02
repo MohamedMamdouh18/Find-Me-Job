@@ -21,6 +21,10 @@ class WorkflowRunRepository:
         self.session.add(run)
         return run
 
+    def fail_running(self, reason: str):
+        """Public entry point for callers outside a run, e.g. shutdown."""
+        self._fail_stale_runs(reason)
+
     def _fail_stale_runs(self, reason: str):
         stale = self.session.exec(
             select(WorkflowRun).where(WorkflowRun.status == "running")
@@ -49,7 +53,7 @@ class WorkflowRunRepository:
             run.jobs_scraped = jobs_scraped
 
         # Derive the scoring counts from what actually landed while the run was open,
-        # so n8n does not have to thread counters through every branch.
+        # so callers do not have to thread counters through every branch.
         window = (FilteredJob.created_at >= run.started_at) & (
             FilteredJob.created_at <= run.finished_at
         )

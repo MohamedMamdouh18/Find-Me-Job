@@ -1,25 +1,35 @@
 import asyncio
+from contextlib import asynccontextmanager
+import logging
 
-from fastapi import FastAPI
-from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from fastapi import FastAPI
+from sqlmodel import Session
 
+from . import shared
+from .database.core import delete_old_jobs, engine, run_migrations
+from .database.repositories import WorkflowRunRepository
 from .routes import (
+    backup_router,
+    blocked_router,
     cv_router,
+    email_router,
     jobs_router,
     params_router,
-    email_router,
-    starred_router,
-    blocked_router,
     runs_router,
-    backup_router,
+    starred_router,
 )
-from contextlib import asynccontextmanager
-from .database.core import delete_old_jobs, run_migrations
-from . import shared
-from .shared import TIMEZONE, detect_tunnel_url_and_send_notification
+from .services.pipeline import run_pipeline
+from .services.run_context import RunIdFilter
+from .shared import TIMEZONE, detect_tunnel_url_and_send_notification, scheduler
 
-scheduler = BackgroundScheduler(timezone=TIMEZONE)
+# Configure stdlib logging format and run_id injection
+log_handler = logging.StreamHandler()
+log_handler.setFormatter(
+    logging.Formatter("[%(asctime)s] %(levelname)-5s %(run_id)s %(name)s: %(message)s")
+)
+log_handler.addFilter(RunIdFilter())
+logging.basicConfig(level=logging.INFO, handlers=[log_handler])
 
 
 @asynccontextmanager
@@ -27,7 +37,20 @@ async def lifespan(app: FastAPI):
     # STARTUP
     run_migrations()
     delete_old_jobs()
-    scheduler.add_job(delete_old_jobs, CronTrigger(hour=0, minute=0, timezone=TIMEZONE))
+    scheduler.add_job(
+        delete_old_jobs, CronTrigger(hour=0, minute=0, timezone=TIMEZONE)
+    )
+    # Offset from delete_old_jobs: running retention deletion inside a live scrape
+    # would race the pipeline's own writes.
+    scheduler.add_job(
+        run_pipeline,
+        CronTrigger(hour=1, minute=0, timezone=TIMEZONE),
+        args=["schedule"],
+        id="pipeline",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
     scheduler.start()
 
     # Keep a reference so the task is not garbage collected mid-flight.
@@ -39,6 +62,15 @@ async def lifespan(app: FastAPI):
     tunnel_task.cancel()
     if shared.email_service:
         shared.email_service.quit()
+
+    # Mark any in-flight runs as failed on shutdown
+    try:
+        with Session(engine) as session:
+            WorkflowRunRepository(session).fail_running("server shutdown")
+            session.commit()
+    except Exception:
+        logging.getLogger(__name__).exception("Could not mark in-flight runs failed on shutdown")
+
     scheduler.shutdown()
 
 

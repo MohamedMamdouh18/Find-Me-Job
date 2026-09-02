@@ -2,12 +2,6 @@
 
 An automated job scraping and AI matching pipeline that runs on a schedule, scrapes jobs from **LinkedIn** and **RemoteOK**, prevents fetching the same job twice, scores each one against your CV using an LLM, generates a cover letter for good matches, stores matched jobs in a **local SQLite database**, and serves them through a **Streamlit dashboard** with analytics, filtering, and job management. A **Cloudflare Quick Tunnel** exposes the dashboard publicly, and **Telegram notifications** send you the access URL on startup plus a summary after each run. Everything runs locally in Docker.
 
-![n8n Main Workflow](assets/n8n-main-workflow.png)
-
-| LinkedIn Sub-Workflow | RemoteOK Sub-Workflow |
-|:---:|:---:|
-| ![LinkedIn Sub-Workflow](assets/linkedin-scraping-subworkflow.png) | ![RemoteOK Sub-Workflow](assets/remoteok-scraping-subworkflow.png) |
-
 ---
 
 ## Table of Contents
@@ -34,21 +28,21 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 
 ## Features
 
-- **Dual source scraping** - LinkedIn (with filters) and RemoteOK, each as a modular sub-workflow
+- **Dual source scraping** - LinkedIn (with filters) and RemoteOK
 - **Multiple LinkedIn searches** - define multiple search queries (different keywords, locations, filters) in a single config file; all are executed in one run
 - **Deduplication** - jobs already seen or pending are skipped automatically across runs
 - **AI scoring** - scores each job 0–100 based on your CV, required skills, and years of experience; small experience gaps (1–2 years) are penalized lightly, 3+ years below means score 0
 - **Cover letter generation** - only generated for jobs scoring above `FILTERING_SCORE` (default 60), saving tokens
 - **Streamlit dashboard** at `localhost:8501` with analytics (stat cards, charts, a year-long activity heatmap), a scannable job list with a detail panel, quick-filter views, bulk actions, a combined starred/blocked companies list, and manual job entry
-- **Auto email application** - when a job listing includes an email address, the workflow sends a personalized application email with your CV attached and marks the job as `email_sent`
+- **Auto email application** - when a job listing includes an email address, the pipeline sends a personalized application email with your CV attached and marks the job as `email_sent`
 - **Cloudflare Quick Tunnel** - auto-creates a public `trycloudflare.com` URL for the dashboard, no account needed
-- **Telegram notifications** - sends the dashboard URL on startup and a summary after each workflow run
+- **Telegram notifications** - sends the dashboard URL on startup and a summary after each pipeline run
 - **LLM-powered keyword extraction** - extracts job titles and skills from your CV to filter RemoteOK results; cached and only re-extracted when the CV changes
 - **Flexible LLM provider** - any OpenAI-compatible API (Groq, Google AI Studio, OpenRouter, local models, etc.)
 - **Company blocklist** - block a company and its jobs are dropped before they ever reach the LLM, so they cost nothing
 - **Starred companies** - keep a watchlist with careers URLs and notes; starred jobs are flagged with ★ and get their own view
 - **Settings tab** - upload your CV, edit search config, trigger a run, export your data, and download a database backup without leaving the dashboard
-- **Run history** - every workflow run is recorded with counts and errors, so a silent failure is visible
+- **Run history** - every pipeline run is recorded with counts and errors, so a silent failure is visible
 - **Persistent storage** - SQLite with Alembic migrations applied on startup; old records purged automatically
 
 ---
@@ -75,6 +69,7 @@ cd find-me-job
 cp .env.example .env      # then fill in your values
 chmod 600 .env            # it will hold your API keys
 cp /path/to/your-cv.docx cv.docx
+cp params/linkedin_searches.txt.example params/linkedin_searches.txt
 docker compose up -d --build
 ```
 
@@ -83,15 +78,9 @@ you need `LLM_API_KEY`, `LLM_URL` and `LLM_MODEL`; Telegram and email are option
 
 ### 3. Open the dashboard
 
-Open [http://localhost:8501](http://localhost:8501). Everything else is configurable from the **Settings** tab — upload your CV, edit your LinkedIn searches, and trigger a run without ever opening n8n.
+Open [http://localhost:8501](http://localhost:8501). Everything is configurable from the **Settings** tab — upload your CV, edit your LinkedIn searches, and trigger a run.
 
-A public `trycloudflare.com` URL is also created automatically and sent to your Telegram.
-
-### 4. Activate the workflow (one time)
-
-Open n8n at [http://localhost:5678](http://localhost:5678) — or click **Open n8n** in the dashboard's Settings tab — and toggle **Scraping Main Workflow** to **Active**. This registers the schedule and the webhook that the dashboard's **Run now** button calls.
-
-For Telegram notifications, create a Telegram credential named `Telegram account` with `{{ $env.TELEGRAM_BOT_TOKEN }}` before activating. The LLM config is read from your `.env` automatically.
+The pipeline runs automatically on schedule and can be triggered manually from the dashboard. A public `trycloudflare.com` URL is also created automatically and sent to your Telegram.
 
 ![Telegram Tunnel Notification](assets/telegram-tunnel-notification.png)
 
@@ -102,26 +91,8 @@ For Telegram notifications, create a Telegram credential named `Telegram account
 ### Environment Variables (`.env`)
 
 ```env
-# ── n8n ─────────────────────────────────────────────
-N8N_HOST=localhost
-N8N_PORT=5678
-N8N_PROTOCOL=http
-WEBHOOK_URL=http://localhost:5678
-DB_TYPE=sqlite
-DB_SQLITE_DATABASE=/data/db/n8n.db
-N8N_BLOCK_ENV_ACCESS_IN_NODE=false
-N8N_IMPORT_WORKFLOWS_FROM=/workflows
+# ── General ──────────────────────────────────────────
 GENERIC_TIMEZONE=Africa/Cairo
-
-# Cap n8n execution history so data/db/n8n.db does not grow without bound
-EXECUTIONS_DATA_PRUNE=true
-EXECUTIONS_DATA_MAX_AGE=168
-EXECUTIONS_DATA_PRUNE_MAX_COUNT=5000
-
-# Silence n8n telemetry/version pings (pure log noise on a personal instance)
-N8N_DIAGNOSTICS_ENABLED=false
-N8N_VERSION_NOTIFICATIONS_ENABLED=false
-N8N_TEMPLATES_ENABLED=false
 
 # Days before old job records are purged (default: 60)
 # Cleanup runs on startup and daily at midnight, in GENERIC_TIMEZONE
@@ -130,10 +101,10 @@ DELETE_OLD_JOBS_DAYS=60
 # Host user id the API/dashboard containers run as; must own ./data (run: id -u)
 APP_UID=1000
 
-# Where the dashboard's "Open n8n" button points (must be reachable from your browser)
-N8N_PUBLIC_URL=http://localhost:5678
-# Webhook path the "Run now" button calls on the main workflow
-N8N_RUN_WEBHOOK_PATH=find-me-job-run
+# Host ports. Change these if something else on your machine already uses them;
+# containers always talk to each other on the internal ports, so nothing else breaks.
+API_PORT=8001
+DASHBOARD_PORT=8501
 
 # ── LLM ──────────────────────────────────────────────
 # API key for your chosen LLM provider
@@ -163,7 +134,9 @@ SENDER_NAME=Your Name
 
 ### LinkedIn Search Config
 
-Edit `params/linkedin_searches.txt`. The file supports **multiple searches** in a single config - the workflow loops over all entries in the `searches` array:
+Edit `params/linkedin_searches.txt` (created from `params/linkedin_searches.txt.example`
+during setup; it is git-ignored because it holds your own preferences and the dashboard
+rewrites it). The file supports **multiple searches** in a single config - the pipeline loops over all entries in the `searches` array:
 
 ```json
 {
@@ -449,15 +422,13 @@ or losing your scroll position. It reads the same counts as the sidebar and Anal
 
 | Readout | Source |
 |---------|--------|
-| **Workflow** | `Active` / `Inactive` / `Unknown` from a side-effect-free webhook probe. Set `N8N_API_KEY` for a definitive answer via n8n's REST API |
-| **n8n** | `Up` / `Down` from `/healthz` — whether the service itself is answering, which is a different question from whether the workflow is switched on |
 | **Last run** | Newest row in `workflow_runs` — status, relative time, scored/matched counts, duration |
 | **Scored** | `filtered_jobs` total, with the matched count underneath |
 | **Queue** | `pending_jobs` depth — the number that moves while a run is in flight |
 
 | Tab | What it does |
 |-----|--------------|
-| **Workflow** | **Run now** POSTs to the webhook and narrates the attempt in an `st.status`. When n8n is unreachable or the workflow is switched off it is disabled, with an inline warning and an **Activate in n8n** link — rather than a lit button that would 404. Failures become a persistent block naming the cause |
+| **Workflow** | **Run now** triggers the pipeline and narrates the attempt in an `st.status`. Includes live progress with a countdown during rate-limit waits. Failures become a persistent block naming the cause |
 | **CV** | `cv.docx · 2.6 MB · file changed 27 Mar 2026 (4mo ago)`, the extracted titles and skills as chips (`4 titles · 18 skills · extracted 5mo ago` — a different event, so a different label), a download button, and the uploader collapsed behind **Replace CV** with a size diff and an explicit confirm |
 | **Searches** | `params/linkedin_searches.txt` as an editable table — one row per LinkedIn query, with `f_TPR` values shown as *Past week* and Easy Apply as a checkbox. The keyword-extraction prompt sits below it. **Save changes** stays disabled until something actually changes, and the heading turns to `● Unsaved changes` when it does |
 | **Data** | One export control (CSV/JSON × matched/all) that states row count and estimated size before you click, plus a one-click DB backup. Both generate lazily, so opening the tab exports nothing. Backups stream to your browser and are not kept server-side, which the tab says rather than leaving you to wonder where the history is |
@@ -480,7 +451,7 @@ The page auto-refreshes every 5 minutes. API responses are cached briefly in the
 
 ## Python API Reference
 
-The sidecar API runs on port `8001`. From n8n use `http://python-api:8001`. From your host use `http://localhost:8001`.
+The API runs on port `8001`. From your host use `http://localhost:8001`.
 
 All endpoints are prefixed with `/api`. On startup, the API automatically runs Alembic migrations and purges old records. Old job cleanup also runs daily at midnight via a background scheduler.
 
@@ -627,7 +598,7 @@ Same fields as pending, plus `score`, `application_document`, and `ai_status`:
 }
 ```
 
-The email is sent via SMTP using the credentials from your `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_APP_PASSWORD`, `SENDER_NAME`). Your `cv.docx` is automatically attached. Set `AUTO_EMAIL` to any non-empty value in `.env` to enable the n8n workflow to call this endpoint automatically when a job listing provides an email address.
+The email is sent via SMTP using the credentials from your `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_APP_PASSWORD`, `SENDER_NAME`). Your `cv.docx` is automatically attached. Set `AUTO_EMAIL` to any non-empty value in `.env` to enable the pipeline to send application emails automatically when a job listing provides an email address.
 
 ---
 
@@ -673,14 +644,11 @@ A second LLM call runs only on jobs that scored ≥ `FILTERING_SCORE` **and** wh
 
 | Service | Image | Port | Purpose |
 |---------|-------|------|---------|
-| `n8n` | Custom (built from `n8n/Dockerfile` based on `n8nio/n8n:2.11.4`) | `5678` | Workflow automation engine with auto-import |
-| `find-me-job-python-api` | Custom (built from `python-api/Dockerfile` based on `python:3.12-slim`) | `8001` | FastAPI sidecar (SQLModel ORM, Alembic migrations) for DB, CV, and params |
+| `find-me-job-python-api` | Custom (built from `python-api/Dockerfile` based on `python:3.12-slim`) | `8001` | FastAPI backend (SQLModel ORM, Alembic migrations, scrapers, LLM scoring, scheduling) |
 | `find-me-job-dashboard` | Custom (built from `dashboard/Dockerfile` based on `python:3.12-slim`) | `8501` | Streamlit dashboard for analytics and job management |
 | `find-me-job-tunnel` | `cloudflare/cloudflared:2026.3.0` | internal only | Cloudflare Quick Tunnel - exposes the dashboard via a public `trycloudflare.com` URL |
 
-The n8n service uses a custom Docker image that automatically imports workflows from the `workflows/` directory on first start. Subsequent starts skip the import to preserve any manual changes made within n8n.
-
-The API and dashboard containers run as a non-root user and expose a healthcheck; Compose waits for the API to report healthy before starting the dashboard and n8n. The container user id defaults to `1000`. If your host user id is different (check with `id -u`), set `APP_UID` in `.env` so the containers can write to `./data`:
+The API and dashboard containers run as a non-root user and expose a healthcheck; Compose waits for the API to report healthy before starting the dashboard. The container user id defaults to `1000`. If your host user id is different (check with `id -u`), set `APP_UID` in `.env` so the containers can write to `./data`:
 
 ```bash
 echo "APP_UID=$(id -u)" >> .env
@@ -692,7 +660,7 @@ The tunnel container publishes no host port — the API reads the tunnel URL ove
 ### Troubleshooting
 
 **`Bind for 0.0.0.0:8001 failed: port is already allocated`** — something else on your
-machine uses that port. Set `API_PORT` (or `DASHBOARD_PORT` / `N8N_PORT_HOST`) in `.env`
+machine uses that port. Set `API_PORT` (or `DASHBOARD_PORT`) in `.env`
 to a free one and bring the stack back up. Only the host-side port changes; the
 containers keep talking to each other on the internal ports.
 
@@ -700,18 +668,6 @@ containers keep talking to each other on the internal ports.
 echo "API_PORT=8002" >> .env
 docker compose up -d
 ```
-
-**n8n exits with `EACCES: permission denied, open '/home/node/.n8n/config'`** — a file in
-`data/` is owned by root, usually left behind by a `sudo docker compose up`. The
-containers run as your user, so they cannot read it:
-
-```bash
-sudo chown -R $(id -u):$(id -g) data
-docker compose up -d
-```
-
-Do not delete `data/n8n/config` to get around this — it holds n8n's encryption key, and
-losing it makes every saved n8n credential undecryptable.
 
 **The tunnel never comes up / `failed to request quick Tunnel: ... i/o timeout`** — your
 containers cannot resolve DNS. Check whether the Docker daemon pins a resolver your
@@ -745,10 +701,7 @@ docker compose up -d              # Start all services
 docker compose up -d --build      # Rebuild images after code changes
 docker compose logs -f python-api # Tail API logs
 docker compose down               # Stop everything
-docker compose down -v            # Stop and wipe all data (database + n8n state)
-
-# Force re-import of workflows on next start
-docker exec n8n rm /home/node/.n8n/.imported && docker restart n8n
+docker compose down -v            # Stop and wipe all data (database)
 ```
 
 ---
@@ -759,24 +712,13 @@ Estimated download size on first `docker compose up -d`:
 
 | Component | Download Size |
 |-----------|---------------|
-| n8n Docker image (`n8nio/n8n:2.11.4`) | ~300 MB |
 | Python base image (`python:3.12-slim`) (shared by API + dashboard) | ~50 MB |
-| API pip dependencies (FastAPI, SQLModel, Alembic) | ~30 MB |
+| API pip dependencies (FastAPI, SQLModel, Alembic, httpx, beautifulsoup4) | ~30 MB |
 | Dashboard pip dependencies (Streamlit, Plotly, pandas) | ~120 MB |
 | Cloudflared image (`cloudflare/cloudflared:2026.3.0`) | ~30 MB |
-| **Total download** | **~530 MB** |
+| **Total download** | **~230 MB** |
 
 `data/db/jobs.db` stays small — records older than `DELETE_OLD_JOBS_DAYS` are purged daily, along with their status history.
-
-`data/db/n8n.db` is a different story: n8n stores the full input and output of every node for every execution, and **does not prune it by default**. On a schedule that runs several times a day this file can reach hundreds of MB within a couple of months. To cap it, add the following to your `.env` and restart:
-
-```env
-EXECUTIONS_DATA_PRUNE=true
-EXECUTIONS_DATA_MAX_AGE=168        # hours of execution history to keep (7 days)
-EXECUTIONS_DATA_PRUNE_MAX_COUNT=5000
-```
-
-Pruning does not shrink the file on its own; run `sqlite3 data/db/n8n.db "VACUUM;"` once with the stack stopped to reclaim the space.
 
 ---
 

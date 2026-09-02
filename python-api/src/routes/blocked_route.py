@@ -5,7 +5,7 @@ from sqlmodel import Session
 
 from ..database import get_session
 from ..database.repositories import BlockedCompanyRepository
-from .requests_scheme.blocked import (
+from ..schemas.blocked import (
     BlockedCompanyCreate,
     BlockedCompanyUpdate,
     BlockedCompanyToggle,

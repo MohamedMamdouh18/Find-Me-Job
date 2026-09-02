@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-mockscoring123",
+  "object": "chat.completion",
+  "created": 1740000000,
+  "model": "gemini-2.5-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"score\": 80,\n  \"coverLetter\": \"I am writing to express my strong interest in the Conversational AI Engineer position at IST Networks. With over two years of professional experience in software engineering, including the development of AI-agent microservices and RAG-based chatbot solutions, I am confident in my ability to contribute to your Professional Services team. My background in building end-to-end web products, combined with my hands-on experience in LLM integration, prompt engineering, and API development using Python and FastAPI, aligns well with the technical demands of designing and deploying sophisticated conversational flows for your enterprise clients.\\n\\nThroughout my career, I have demonstrated a strong aptitude for translating complex technical requirements into scalable, high-performance solutions. My experience with GraphQL, RESTful APIs, and containerized environments, coupled with my academic focus on advanced NLP, provides a solid foundation for managing the full delivery lifecycle of voicebots and chatbots. I am eager to apply my technical expertise and my commitment to delivering measurable business value to the diverse conversational platforms supported by IST Networks, and I look forward to the opportunity to discuss how my skills can support your team's mission.\"\n}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1200,
+    "completion_tokens": 250,
+    "total_tokens": 1450
+  }
+}

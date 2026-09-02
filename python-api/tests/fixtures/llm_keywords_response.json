@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-mockkeywords123",
+  "object": "chat.completion",
+  "created": 1740000000,
+  "model": "gemini-2.5-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```json\n{\n  \"titles\": [\n    \"Software Engineer\",\n    \"Backend Engineer\",\n    \"Full-Stack Engineer\",\n    \"AI Engineer\",\n    \"Senior Software Engineer\"\n  ],\n  \"skills\": [\n    \"Java\",\n    \"Python\",\n    \"Spring Boot\",\n    \"GraphQL\",\n    \"Microservices\",\n    \"PostgreSQL\",\n    \"MySQL\",\n    \"SQL Server\",\n    \"Docker\",\n    \"CrewAI\",\n    \"LLM Integration\",\n    \"RAG\",\n    \"FastAPI\",\n    \"TypeScript\",\n    \"React\",\n    \"Gradle\",\n    \"REST APIs\",\n    \"Odoo\",\n    \"PyTorch\",\n    \"TensorFlow\"\n  ]\n}\n```"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 800,
+    "completion_tokens": 150,
+    "total_tokens": 950
+  }
+}

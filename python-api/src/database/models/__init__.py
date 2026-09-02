@@ -8,3 +8,4 @@ from .cv_keywords import CVKeywords
 from .starred_company import StarredCompany
 from .blocked_company import BlockedCompany
 from .workflow_run import WorkflowRun
+from .run_event import RunEvent
