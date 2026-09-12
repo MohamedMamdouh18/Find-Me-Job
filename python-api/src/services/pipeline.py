@@ -6,7 +6,7 @@ from . import settings
 from .emailing import process_and_send_email_if_needed
 from .intake import save_pending_job
 from .keywords import extract_or_get_keywords
-from .run_context import RunContext
+from .run_context import RunContext, redact_secrets
 from .scoring import score_job
 from ..database.core import engine
 from ..database.models import FilteredJob
@@ -44,12 +44,14 @@ def run_pipeline(trigger: str = "schedule") -> None:
                 cv_text, keywords = extract_or_get_keywords(ctx)
 
                 # 2. Scrape each configured source
+                total_queued = 0
                 for source_name, fetch_fn in SOURCES.items():
                     try:
                         jobs = fetch_fn(ctx, keywords)
                         queued_count = sum(
                             1 for j in jobs if save_pending_job(session, j) == "queued"
                         )
+                        total_queued += queued_count
                         ctx.emit(
                             f"scrape.{source_name}.saved",
                             f"Saved {queued_count} new pending jobs from {source_name}",
@@ -74,6 +76,7 @@ def run_pipeline(trigger: str = "schedule") -> None:
                 filtering_score = settings.get_filtering_score()
                 auto_email = settings.get_auto_email()
 
+                scoring_failures = 0
                 for idx, job in enumerate(pending_jobs, 1):
                     ctx.wait(scoring_delay)
                     ctx.emit(
@@ -84,7 +87,28 @@ def run_pipeline(trigger: str = "schedule") -> None:
                         total=queue_depth,
                     )
 
-                    score, cover_letter = score_job(ctx, job, cv_text)
+                    try:
+                        score, cover_letter = score_job(ctx, job, cv_text)
+                    except Exception as e:
+                        # Isolate per job, like the scraper loop above. The row is dropped
+                        # rather than left queued: it is already recorded in seen_jobs, so
+                        # a job that always fails would otherwise re-fail at this same
+                        # index every run and strand every job behind it.
+                        scoring_failures += 1
+                        logger.exception(f"Scoring failed for job {job.id}: {e}")
+                        ctx.emit(
+                            "score.failed",
+                            f"Scoring failed for {job.title} at {job.company}: {e}",
+                            level="error",
+                            context=str(e),
+                            detail=f"Job {idx} of {queue_depth}",
+                            done=idx,
+                            total=queue_depth,
+                        )
+                        pending_repo.delete(job.id)
+                        session.commit()
+                        continue
+
                     is_fit = score >= filtering_score
                     ai_status = AiStatus.FIT if is_fit else AiStatus.NOT_FIT
                     user_status = UserStatus.NEW
@@ -108,6 +132,10 @@ def run_pipeline(trigger: str = "schedule") -> None:
                         ai_status=ai_status,
                     )
                     filtered_repo.add(filtered_job)
+                    # Drain the queue. Without this every run re-scores the whole
+                    # backlog: save_pending_job dedups on seen_jobs so nothing is
+                    # re-queued, but nothing was ever removed either.
+                    pending_repo.delete(job.id)
                     session.commit()
 
                     ctx.emit(
@@ -118,17 +146,23 @@ def run_pipeline(trigger: str = "schedule") -> None:
                         total=queue_depth,
                     )
 
-                # 4. Finish run and derive stats
-                run_repo.finish(run.id, status="success", jobs_scraped=queue_depth)
+                # 4. Finish run and derive stats.
+                # jobs_scraped is what this run actually queued, not the queue depth:
+                # the queue can still hold rows this run did not scrape.
+                run_repo.finish(run.id, status="success", jobs_scraped=total_queued)
                 session.commit()
                 ctx.emit(
                     "run.finish",
                     f"Run {run.id} finished successfully. Scored: {run.jobs_scored}, Matched: {run.jobs_matched}",
                 )
 
+                failures_line = (
+                    f" | Failed: {scoring_failures}" if scoring_failures else ""
+                )
                 summary_text = (
                     f"Find Me a Job run finished\n"
-                    f"Scraped: {run.jobs_scraped} | Scored: {run.jobs_scored} | Fit: {run.jobs_matched}\n"
+                    f"Scraped: {run.jobs_scraped} | Scored: {run.jobs_scored} | "
+                    f"Fit: {run.jobs_matched}{failures_line}\n"
                     # read through the module: shared.DASHBOARD_URL is rebound after tunnel detection
                     f"Dashboard: {shared.DASHBOARD_URL}"
                 )
@@ -142,8 +176,13 @@ def run_pipeline(trigger: str = "schedule") -> None:
                     level="error",
                     context=str(e),
                 )
-                run_repo.finish(run.id, status="failed", error=str(e))
+                # workflow_runs.error is rendered in the dashboard, so it is the same
+                # class of sink as a log line and gets the same redaction.
+                run_repo.finish(run.id, status="failed", error=redact_secrets(str(e)))
                 session.commit()
+
+            finally:
+                ctx.reset()
 
     finally:
         _run_lock.release()

@@ -10,6 +10,7 @@ from src.services.run_context import (
     redact_secrets,
     get_current_progress,
     set_current_progress,
+    run_id_var,
 )
 
 
@@ -91,6 +92,27 @@ def test_wait_sets_waiting_until_without_db_write():
         assert slept == [5]
         events_after = len(session.exec(select(RunEvent)).all())
         assert events_after == events_before  # No DB writes during wait
+
+
+def test_run_context_reset_clears_run_id_var():
+    """APScheduler reuses executor threads: an unreset run_id tags the next job's logs."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        run = WorkflowRunRepository(session).start(trigger="manual")
+        session.commit()
+
+        before = run_id_var.get()
+        ctx = RunContext(run.id, session)
+        assert run_id_var.get() == run.id
+
+        ctx.reset()
+        assert run_id_var.get() == before
 
 
 def test_redact_secrets():

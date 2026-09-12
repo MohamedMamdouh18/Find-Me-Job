@@ -30,6 +30,7 @@ from api import (
     trigger_run,
     upload_cv,
 )
+from constants import BLUE
 from components.styles import empty_state
 from components.ui import (
     format_date,
@@ -798,7 +799,7 @@ def _render_history():
             )
             st.line_chart(
                 {"matched": [r.get("jobs_matched", 0) or 0 for r in chart]},
-                height=120, color="#2a78d6",
+                height=120, color=BLUE,
             )
 
         table = [

@@ -32,6 +32,8 @@ def get(
                 logger.warning(f"GET {url} attempt {attempt}/{tries} raised {e}")
 
             if attempt < tries:
-                time.sleep(wait)
+                # Doubling per attempt, as the docstring promises: a scraper that is
+                # being rate limited should back off, not hammer at a fixed interval.
+                time.sleep(wait * (2 ** (attempt - 1)))
 
     raise RuntimeError(f"GET {url} failed after {tries} attempts: {last_exc}") from last_exc

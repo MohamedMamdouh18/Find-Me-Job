@@ -20,8 +20,13 @@ def get_filtering_score() -> int:
     return int(os.getenv("FILTERING_SCORE") or 60)
 
 
+# bool("false") is True, so an explicit allowlist is the only safe read here:
+# this flag gates sending real applications to real employer addresses.
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
 def get_auto_email() -> bool:
-    return bool(os.getenv("AUTO_EMAIL"))
+    return os.getenv("AUTO_EMAIL", "").strip().lower() in _TRUTHY
 
 
 def get_scoring_delay() -> int:

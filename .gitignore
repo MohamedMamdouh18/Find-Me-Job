@@ -61,3 +61,13 @@ jobs-backup-*.db
 .playwright/
 test-results/
 
+AGENTS.md
+CLAUDE.md
+.agents/
+.claude/
+skills-lock.json
+.scratch/
+docs/
+
+# Leftover n8n state; the container is gone, the directory may still be on disk
+data/n8n/

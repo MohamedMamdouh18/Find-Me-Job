@@ -528,8 +528,9 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 | Method | Endpoint | Params / Body | Description |
 |--------|----------|---------------|-------------|
 | `GET` | `/api/runs` | `?limit=20` | Recent workflow runs, newest first |
-| `POST` | `/api/runs/start` | `{"trigger": "schedule"}` | Open a run; any earlier unfinished run is marked failed |
-| `POST` | `/api/runs/{id}/finish` | `{"status": "success", "jobs_scraped": 42}` | Close a run. `jobs_scored` and `jobs_matched` are derived server-side from what landed during the run |
+| `POST` | `/api/runs/trigger` | - | Run the pipeline now, in the background. 202, returns immediately; a run already in flight is skipped, not queued |
+| `GET` | `/api/runs/current` | - | Live progress of the active run, or `null`. Includes `stage`, `detail`, `done`/`total`, `seconds_remaining` during a scoring wait, and the last 5 events |
+| `GET` | `/api/runs/{id}/events` | - | Full event history for one run |
 
 **Export and backup**:
 

@@ -1,9 +1,12 @@
+import logging
 import smtplib
 import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+
+logger = logging.getLogger(__name__)
 
 
 class EmailService:
@@ -33,10 +36,10 @@ class EmailService:
                     self._client.ehlo()
 
                 self._client.login(self.user, self.password.strip())
-                print(f"SMTP connected as {self.user}", flush=True)
+                logger.info(f"SMTP connected as {self.user}")
                 return
             except Exception as e:
-                print(f"SMTP connection attempt {attempt}/{retries} failed: {e}", flush=True)
+                logger.warning(f"SMTP connection attempt {attempt}/{retries} failed: {e}")
                 self._client = None
                 if attempt < retries:
                     time.sleep(delay)
@@ -51,14 +54,14 @@ class EmailService:
                 if status == 250:
                     return  # Connection is still alive
             except Exception as e:
-                print(f"SMTP connection dead ({e}), reconnecting...", flush=True)
+                logger.warning(f"SMTP connection dead ({e}), reconnecting...")
                 try:
                     self._client.quit()
                 except Exception:
                     pass
                 self._client = None
 
-        print("Establishing new SMTP connection...", flush=True)
+        logger.info("Establishing new SMTP connection...")
         self._connect()
 
     def send_application_email(self, recipient: str, subject: str, body: str) -> str:
@@ -79,7 +82,7 @@ class EmailService:
             part.add_header("Content-Disposition", "attachment", filename="CV.docx")
             msg.attach(part)
 
-        print(f"Sending email to {recipient} with subject '{subject}'", flush=True)
+        logger.info(f"Sending email to {recipient} with subject '{subject}'")
 
         # Guarantee self._client is fresh or alive
         response = self._client.send_message(msg)  # type: ignore
@@ -90,7 +93,7 @@ class EmailService:
         if self._client is not None:
             try:
                 self._client.quit()
-                print("SMTP disconnected safely", flush=True)
+                logger.info("SMTP disconnected safely")
             except Exception as e:
-                print(f"Error disconnecting from SMTP: {e}", flush=True)
+                logger.warning(f"Error disconnecting from SMTP: {e}")
             self._client = None

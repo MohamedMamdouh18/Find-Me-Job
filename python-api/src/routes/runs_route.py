@@ -1,15 +1,13 @@
 import logging
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session, select
+from fastapi import APIRouter, Depends, Query
+from sqlmodel import Session
 
 from ..database import get_session
-from ..database.models import WorkflowRun
 from ..database.repositories import WorkflowRunRepository, RunEventRepository
 from ..services.pipeline import run_pipeline
 from ..services.run_context import get_current_progress
 from ..shared import now, scheduler
-from ..schemas.runs import RunStart, RunFinish
 
 logger = logging.getLogger(__name__)
 runs_router = APIRouter(prefix="/api/runs", tags=["runs"])
@@ -17,7 +15,13 @@ runs_router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 @runs_router.get("")
 def list_runs(limit: int = Query(20, ge=1, le=100), session: Session = Depends(get_session)):
-    return [r.model_dump() for r in WorkflowRunRepository(session).get_recent(limit)]
+    runs = WorkflowRunRepository(session).get_recent(limit)
+    # Dump before committing: commit expires the instances, and model_dump() reads
+    # their attributes without triggering a refresh, so it would return empty rows.
+    payload = [r.model_dump() for r in runs]
+    # get_recent expires runs that never reported back; repositories never commit.
+    session.commit()
+    return payload
 
 
 @runs_router.post("/trigger", status_code=202)
@@ -54,11 +58,7 @@ def get_current_run_progress(session: Session = Depends(get_session)) -> Any:
         }
 
     # Fallback to database if process restarted mid-run
-    running = session.exec(
-        select(WorkflowRun)
-        .where(WorkflowRun.status == "running")
-        .order_by(WorkflowRun.started_at.desc())  # type: ignore[arg-type]
-    ).first()
+    running = WorkflowRunRepository(session).get_running()
 
     if running:
         recent_events = [
@@ -86,21 +86,6 @@ def get_run_events(run_id: int, session: Session = Depends(get_session)):
     return [e.model_dump() for e in events]
 
 
-@runs_router.post("/start", status_code=201)
-def start_run(body: RunStart, session: Session = Depends(get_session)):
-    run = WorkflowRunRepository(session).start(trigger=body.trigger)
-    session.commit()
-    session.refresh(run)
-    return run.model_dump()
-
-
-@runs_router.post("/{run_id}/finish")
-def finish_run(run_id: int, body: RunFinish, session: Session = Depends(get_session)):
-    run = WorkflowRunRepository(session).finish(
-        run_id, status=body.status, error=body.error, jobs_scraped=body.jobs_scraped
-    )
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
-    session.commit()
-    session.refresh(run)
-    return run.model_dump()
+# POST /start and POST /{run_id}/finish were removed with n8n. Nothing calls them, and
+# /start ran _fail_stale_runs with no time cutoff, so hitting it during a live run flipped
+# that run to "failed" while the pipeline kept going. Run bookkeeping is in-process now.

@@ -159,3 +159,66 @@ def test_clean_description_strips_tags_before_unescaping():
     out = clean_description("<p>Use &lt;script&gt; tags and R&amp;D skills</p>")
     assert "script" in out, f"escaped markup was swallowed: {out!r}"
     assert "R&D" in out
+
+
+class _FailingClient:
+    """httpx.Client stand-in whose every GET raises, to drive the retry loop."""
+
+    def __init__(self, *a, **k):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def get(self, url, headers=None):
+        import httpx
+
+        raise httpx.ConnectError("boom")
+
+
+def test_http_get_backs_off_exponentially(monkeypatch):
+    """The docstring promised exponential backoff; the loop slept a constant."""
+    from src.services import http as http_module
+
+    slept: list[float] = []
+    monkeypatch.setattr(http_module.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(http_module.httpx, "Client", _FailingClient)
+
+    try:
+        http_module.get("https://example.test", tries=4, wait=2.0)
+    except RuntimeError:
+        pass
+
+    assert slept == [2.0, 4.0, 8.0], f"waits were not exponential: {slept}"
+
+
+def test_http_get_does_not_sleep_after_the_last_attempt(monkeypatch):
+    from src.services import http as http_module
+
+    slept: list[float] = []
+    monkeypatch.setattr(http_module.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(http_module.httpx, "Client", _FailingClient)
+
+    try:
+        http_module.get("https://example.test", tries=1, wait=5.0)
+    except RuntimeError:
+        pass
+
+    assert slept == [], "slept after the final attempt"
+
+
+def test_sources_conform_to_the_source_protocol():
+    """CLAUDE.md documents fetch(ctx, keywords); PHASES.md asks for a Source protocol."""
+    import inspect
+
+    from src.scrapers import SOURCES
+    from src.scrapers.base import Source
+
+    assert SOURCES, "no sources registered"
+    for name, fetch in SOURCES.items():
+        assert isinstance(fetch, Source), f"{name} does not satisfy the Source protocol"
+        params = list(inspect.signature(fetch).parameters)
+        assert params == ["ctx", "keywords"], f"{name} has signature {params}"

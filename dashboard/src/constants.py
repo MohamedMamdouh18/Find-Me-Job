@@ -49,7 +49,7 @@ USER_BADGE_CLASS = {
 
 # Chart display labels and colors — sourced from the validated palette in theme.py
 from theme import (  # noqa: E402
-    AQUA, BLUE, CRITICAL, GOOD, NEUTRAL, ORANGE, SEQ, VIOLET, WARNING,
+    AQUA, BLUE, CRITICAL, GOOD, NEUTRAL, ORANGE, SEQ, SURFACE, VIOLET, WARNING,
 )
 
 AI_STATUS_LABELS = {AI_FIT: "Fit", AI_NOT_FIT: "Not Fit"}

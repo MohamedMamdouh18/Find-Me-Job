@@ -101,7 +101,7 @@ def filter_and_score_remoteok_jobs(
     return results
 
 
-def fetch(ctx: RunContext, keywords: dict | None = None) -> list[PendingJobRequest]:
+def fetch(ctx: RunContext, keywords: dict) -> list[PendingJobRequest]:
     """Fetches and filters remote jobs from RemoteOK API."""
     ctx.emit("scrape.remoteok.start", "Fetching RemoteOK jobs API")
     url = "https://remoteok.com/api"

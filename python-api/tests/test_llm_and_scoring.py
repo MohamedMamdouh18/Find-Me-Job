@@ -33,6 +33,47 @@ def test_parse_llm_json_eight_cases():
     assert parsed_fenced["score"] == 95
 
 
+def test_repair_preserves_cover_letter_text():
+    """The score surviving is not the point: repair exists to protect the letter body.
+
+    Each case pairs a raw response with the exact coverLetter value it must decode to.
+    """
+    cases = [
+        ('{"score":85,"coverLetter":"Dear Team, I am keen."}', "Dear Team, I am keen."),
+        # A real newline inside a string literal must become an escaped one, not vanish.
+        (
+            '{"score":85,"coverLetter":"Dear Team,\nSincerely,\nM"}',
+            "Dear Team,\nSincerely,\nM",
+        ),
+        # Pretty-printed JSON: newlines *between* tokens must not be escaped into the output.
+        (
+            '{\n  "score": 85,\n  "coverLetter": "Dear Team,\nSincerely"\n}',
+            "Dear Team,\nSincerely",
+        ),
+        ('{"score":70,"coverLetter":"a\tb"}', "a\tb"),
+        # Already-escaped sequences must survive untouched, not be double-escaped.
+        ('{"score":90,"coverLetter":"Dear Team,\\nBest"}', "Dear Team,\nBest"),
+        # Escaped quotes must not flip the in-string tracking.
+        ('{"score":60,"coverLetter":"He said \\"hi\\"\nBye"}', 'He said "hi"\nBye'),
+        # Braces inside a string must not be treated as structure.
+        (
+            '{\n "score": 55,\n "coverLetter": "Use {json} here\nEnd"\n}',
+            "Use {json} here\nEnd",
+        ),
+        ('{"score":40,"coverLetter":"carriage\r\nreturn"}', "carriage\r\nreturn"),
+    ]
+
+    for raw, expected_letter in cases:
+        parsed = parse_llm_json(raw)
+        assert parsed["coverLetter"] == expected_letter, f"letter corrupted for: {raw!r}"
+
+
+def test_repair_json_leaves_valid_json_untouched():
+    """repair_json must be a no-op on input that is already valid."""
+    valid = '{\n  "score": 42,\n  "coverLetter": "plain"\n}'
+    assert repair_json(valid) == valid
+
+
 def test_keywords_cached_when_hash_matches(tmp_path, monkeypatch):
     engine = create_engine(
         "sqlite://",

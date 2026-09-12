@@ -48,7 +48,7 @@ def run_migrations():
 
         SQLModel.metadata.create_all(engine)
         command.stamp(alembic_cfg, "head")
-        print("Initialised a new database from the current models.", flush=True)
+        logger.info("Initialised a new database from the current models.")
         return
 
     command.upgrade(alembic_cfg, "head")

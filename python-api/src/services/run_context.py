@@ -70,7 +70,15 @@ class RunContext:
     def __init__(self, run_id: int, session: Session):
         self.run_id = run_id
         self.session = session
-        run_id_var.set(run_id)
+        # Keep the token: APScheduler reuses executor threads, so without a reset the
+        # next job on this thread (delete_old_jobs) logs under the finished run's id.
+        self._run_id_token = run_id_var.set(run_id)
+
+    def reset(self):
+        """Restores the run_id the thread carried before this context was created."""
+        if self._run_id_token is not None:
+            run_id_var.reset(self._run_id_token)
+            self._run_id_token = None
 
     def emit(
         self,

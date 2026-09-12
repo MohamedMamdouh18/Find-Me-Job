@@ -81,6 +81,14 @@ class WorkflowRunRepository:
         )
         return list(self.session.exec(statement).all())
 
+    def get_running(self) -> WorkflowRun | None:
+        """Newest run still marked running, for recovery after a mid-run restart."""
+        return self.session.exec(
+            select(WorkflowRun)
+            .where(WorkflowRun.status == "running")
+            .order_by(WorkflowRun.started_at.desc())  # type: ignore[arg-type]
+        ).first()
+
     def _expire_stale_runs(self):
         """A run that never called finish would otherwise show as running forever."""
         cutoff = now() - timedelta(hours=STALE_RUN_HOURS)
@@ -94,8 +102,6 @@ class WorkflowRunRepository:
             run.finished_at = run.finished_at or now()
             run.error = run.error or f"no completion reported within {STALE_RUN_HOURS}h"
             self.session.add(run)
-        if stale:
-            self.session.commit()
 
     def delete_older_than(self, cutoff: datetime):
         from sqlalchemy import delete

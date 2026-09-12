@@ -1,10 +1,14 @@
 import asyncio
 from datetime import datetime
+import logging
 import os
 import httpx
 import re
 from zoneinfo import ZoneInfo
+from .services import settings
 from .services.email_service import EmailService
+
+logger = logging.getLogger(__name__)
 
 CV_PATH = "/data/cv.docx"
 PARAMS_DIR = "/data/params"
@@ -14,7 +18,7 @@ DASHBOARD_URL = ""
 TUNNEL_POLL_FAST = 5      # seconds, while the stack is starting
 TUNNEL_POLL_SLOW = 60     # seconds, steady-state watch for a changed URL
 
-EMAIL_SENDER_NAME = os.getenv("SENDER_NAME")
+EMAIL_SENDER_NAME = settings.get_sender_name()
 SMTP_HOST = os.getenv("SMTP_HOST") or "smtp.gmail.com"
 # A blank SMTP_PORT= in .env yields "", not the default, and int("") is fatal at import.
 SMTP_PORT = int(os.getenv("SMTP_PORT") or 587)
@@ -52,7 +56,7 @@ def send_telegram(message: str):
             timeout=5,
         )
     except Exception as e:
-        print(f"Telegram notification failed: {e}")
+        logger.warning(f"Telegram notification failed: {e}")
 
 
 async def detect_tunnel_url_and_send_notification():
@@ -82,7 +86,7 @@ async def detect_tunnel_url_and_send_notification():
             if url and url != DASHBOARD_URL:
                 first = not DASHBOARD_URL
                 DASHBOARD_URL = url
-                print(f"Tunnel URL {'detected' if first else 'changed'}: {url}", flush=True)
+                logger.info(f"Tunnel URL {'detected' if first else 'changed'}: {url}")
                 # send_telegram blocks on an HTTP call; off-thread so a slow or
                 # unreachable Telegram cannot stall the event loop.
                 await asyncio.to_thread(

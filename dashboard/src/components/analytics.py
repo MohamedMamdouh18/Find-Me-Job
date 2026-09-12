@@ -29,6 +29,7 @@ from constants import (
     USER_STATUSES,
     USER_STATUS_COLORS,
     USER_STATUS_LABELS,
+    SURFACE,
 )
 from theme import (
     AXIS_CATEGORY,
@@ -43,7 +44,6 @@ from theme import (
 
 HEATMAP_DAYS = 365
 PLOT_CONFIG = {"displayModeBar": False, "responsive": True}
-SURFACE = "#fcfcfb"
 
 
 def clear_analytics_cache():

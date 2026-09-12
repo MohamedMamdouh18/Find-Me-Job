@@ -145,7 +145,7 @@ def parse_job_page(html: str, link_job_id: str) -> PendingJobRequest | None:
     )
 
 
-def fetch(ctx: RunContext, keywords: dict | None = None) -> list[PendingJobRequest]:
+def fetch(ctx: RunContext, keywords: dict) -> list[PendingJobRequest]:
     """Scrapes LinkedIn searches. Note: ignores keywords parameter and reads params/linkedin_searches.txt."""
     searches_file = os.path.join(PARAMS_DIR, "linkedin_searches.txt")
     if not os.path.isfile(searches_file):
@@ -191,8 +191,23 @@ def fetch(ctx: RunContext, keywords: dict | None = None) -> list[PendingJobReque
             job = parse_job_page(res.text, link_job_id)
             if job and job.title and job.description:
                 jobs.append(job)
+            else:
+                # A silent drop here is how a selector change becomes an empty run with
+                # no explanation. Keep enough HTML to tell "layout changed" from "empty".
+                ctx.emit(
+                    "scrape.linkedin.dropped",
+                    f"Dropped LinkedIn job {link_job_id}: no title or description parsed",
+                    level="warning",
+                    context={"url": job_url, "html": res.text[:2000]},
+                )
         except Exception as e:
             logger.warning(f"Failed to fetch LinkedIn job {job_url}: {e}")
+            ctx.emit(
+                "scrape.linkedin.fetch_failed",
+                f"Failed to fetch LinkedIn job {link_job_id}: {e}",
+                level="error",
+                context={"url": job_url, "error": str(e)},
+            )
             continue
 
     ctx.emit(

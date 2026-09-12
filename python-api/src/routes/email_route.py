@@ -21,5 +21,5 @@ def send_application_email(request: SendEmailRequest):
         )
         return {"status": "success", "response": response_str}
     except Exception as e:
-        print(f"Email send failed: {e}", flush=True)
+        logger.exception(f"Email send failed: {e}")
         return JSONResponse({"error": "Email send failed", "details": str(e)}, status_code=500)

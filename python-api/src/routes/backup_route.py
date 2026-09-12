@@ -1,4 +1,6 @@
+import contextlib
 import os
+import shutil
 import sqlite3
 import tempfile
 
@@ -22,9 +24,13 @@ def download_backup(background_tasks: BackgroundTasks):
     target = os.path.join(tmp_dir, "jobs.db")
 
     try:
-        with sqlite3.connect(f"file:{DB}?mode=ro", uri=True) as conn:
+        # closing(), not the bare connection: sqlite3's context manager commits or
+        # rolls back the transaction, it never closes the connection.
+        with contextlib.closing(sqlite3.connect(f"file:{DB}?mode=ro", uri=True)) as conn:
             conn.execute("VACUUM INTO ?", (target,))
     except sqlite3.Error as e:
+        # The cleanup background task is never scheduled on this path.
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=f"Backup failed: {e}")
 
     background_tasks.add_task(_cleanup, tmp_dir, target)
