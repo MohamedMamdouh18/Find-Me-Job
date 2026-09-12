@@ -35,7 +35,7 @@ def score_job(
         {"role": "user", "content": user_content},
     ]
 
-    raw_response = call_llm(messages)
+    raw_response = call_llm(messages, interrupt=ctx.interrupt)
     try:
         parsed = parse_llm_json(raw_response)
         score = int(parsed.get("score", 0))

@@ -82,28 +82,57 @@ def parse_ts(raw) -> datetime | None:
 
 
 def relative_time(raw) -> str:
-    """'12 min ago'. Rows carry naive local timestamps, so compare in the same frame."""
+    """'2 hours ago', 'yesterday'. Rows carry naive local timestamps, so compare in
+    the same frame — the API and dashboard containers share TZ for exactly this.
+
+    Spelled out rather than abbreviated ('2 hours ago', not '2h ago') because these
+    labels answer a question the user is asking, most often "when was this scored?".
+    """
     dt = parse_ts(raw)
     if not dt:
         return ""
     ref = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
     seconds = (ref - dt).total_seconds()
-    if seconds < 90:
+
+    # A timestamp in the future means clock skew between containers, not the future.
+    if seconds < 45:
         return "just now"
-    minutes = seconds / 60
+    if seconds < 90:
+        return "a minute ago"
+
+    minutes = int(seconds / 60)
     if minutes < 60:
-        return f"{int(minutes)} min ago"
-    hours = minutes / 60
+        # 90..119s rounds down to 1, and every other unit here has a singular form.
+        return "a minute ago" if minutes == 1 else f"{minutes} minutes ago"
+
+    hours = int(minutes / 60)
+    if hours < 2:
+        return "an hour ago"
     if hours < 24:
-        return f"{int(hours)}h ago"
+        return f"{hours} hours ago"
+
     days = int(hours / 24)
+    if days < 2:
+        return "yesterday"
     if days < 7:
-        return f"{days}d ago"
+        return f"{days} days ago"
+
+    weeks = days // 7
+    if weeks < 2:
+        return "last week"
     if days < 31:
-        return f"{days // 7}w ago"
+        return f"{weeks} weeks ago"
+
+    months = days // 30
+    if months < 2:
+        return "last month"
     if days < 365:
-        return f"{days // 30}mo ago"
-    return f"{days // 365}y ago"
+        return f"{months} months ago"
+
+    years = days // 365
+    if years < 2:
+        return "last year"
+    return f"{years} years ago"
 
 
 def format_date(raw) -> str:

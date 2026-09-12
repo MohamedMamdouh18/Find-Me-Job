@@ -1,3 +1,5 @@
+import threading
+import time
 from datetime import datetime, timedelta
 from sqlmodel import SQLModel, Session, create_engine, select
 from sqlmodel.pool import StaticPool
@@ -127,3 +129,47 @@ def test_redact_secrets():
     assert "123456789:ABCdefGHI" not in redacted
     assert "[REDACTED_TELEGRAM_TOKEN]" in redacted
     assert "supersecretpassword123" not in redacted
+
+
+def _ctx_with(engine, interrupt=None):
+    session = Session(engine)
+    run = WorkflowRunRepository(session).start(trigger="manual")
+    session.commit()
+    return session, RunContext(run.id, session, interrupt=interrupt)
+
+
+def test_wait_returns_early_when_interrupted():
+    """A pause arriving mid-countdown must not be sat on for the whole delay."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+
+    event = threading.Event()
+    event.set()
+    session, ctx = _ctx_with(engine, interrupt=event)
+    try:
+        started = time.monotonic()
+        ctx.wait(30)
+        assert time.monotonic() - started < 1.0, "wait ignored the interrupt event"
+    finally:
+        session.close()
+
+
+def test_wait_sleeps_the_full_delay_when_not_interrupted():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+
+    session, ctx = _ctx_with(engine, interrupt=threading.Event())
+    try:
+        started = time.monotonic()
+        ctx.wait(1)
+        assert time.monotonic() - started >= 0.9, "wait returned before the delay elapsed"
+    finally:
+        session.close()

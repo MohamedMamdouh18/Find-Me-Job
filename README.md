@@ -529,8 +529,24 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 |--------|----------|---------------|-------------|
 | `GET` | `/api/runs` | `?limit=20` | Recent workflow runs, newest first |
 | `POST` | `/api/runs/trigger` | - | Run the pipeline now, in the background. 202, returns immediately; a run already in flight is skipped, not queued |
+| `POST` | `/api/runs/pause` | - | Ask the active run to stop after the job it is on. 202, or 409 if no run is active. Unscored jobs stay queued |
+| `POST` | `/api/runs/stop` | - | Kill the job being scored and end the run. 202, or 409 if no run is active. Not resumable |
+| `POST` | `/api/runs/resume` | - | Score the leftover queue without re-scraping. 202, or 409 if the newest run is not `paused` |
 | `GET` | `/api/runs/current` | - | Live progress of the active run, or `null`. Includes `stage`, `detail`, `done`/`total`, `seconds_remaining` during a scoring wait, and the last 5 events |
 | `GET` | `/api/runs/{id}/events` | - | Full event history for one run |
+
+Run `status` is one of `running`, `success`, `failed`, `paused`, `stopped`. `paused` is terminal
+for that row: the workflow counts as paused while it is the newest run, the 01:00 cron skips while
+it is, and resuming opens a new run instead of reopening it.
+
+`stopped` is terminal too but deliberately not resumable. Pause waits for the job being scored to
+finish and saves it, so the untouched queue is a clean cursor; stop shuts down the socket that
+call is blocked on, so the job dies mid-flight with no result and no cursor to resume from.
+Starting again is a full fresh run. A stop ends only its own run — unlike a pause, it does not
+hold the nightly schedule.
+
+`GET /api/runs/current` also reports `pause_requested` and `stop_requested`, so the dashboard can
+show an interrupt that has been asked for but not yet landed.
 
 **Export and backup**:
 

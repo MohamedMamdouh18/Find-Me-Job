@@ -54,7 +54,11 @@ VIEW_SCORE_FLOOR = {VIEW_MATCHED: MATCH_CUTOFF, VIEW_STRONG: STRONG_SCORE}
 SORT_OPTIONS = {
     "score_desc": ("Match score", "score", "desc"),
     "score_asc": ("Lowest score", "score", "asc"),
-    "created_desc": ("Newest first", "created_at", "desc"),
+    # created_at is when the scorer wrote the row, and add() preserves it across
+    # re-scores, so it is the job's "scored at" time. updated_at is not: a user
+    # status change moves it.
+    "created_desc": ("Recently scored", "created_at", "desc"),
+    "created_asc": ("Oldest scored", "created_at", "asc"),
     "updated_desc": ("Recently updated", "updated_at", "desc"),
     "company_asc": ("Company A–Z", "company", "asc"),
     "title_asc": ("Title A–Z", "title", "asc"),

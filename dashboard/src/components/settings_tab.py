@@ -26,7 +26,10 @@ from api import (
     get_param,
     get_run_events,
     get_runs,
+    pause_run,
     put_param,
+    resume_run,
+    stop_run,
     trigger_run,
     upload_cv,
 )
@@ -160,16 +163,23 @@ def _render_flash():
 def _last_run_state(run: dict | None) -> tuple[str, str, str]:
     if not run:
         return "idle", "Never", "no run has reported in"
-    when = relative_time(run.get("started_at"))
     status = run.get("status")
     if status == "running":
-        return "ok", f"Running · {when}", f"{run.get('jobs_scraped', 0)} scraped so far"
+        started = relative_time(run.get("started_at"))
+        return "ok", f"Running · {started}", f"{run.get('jobs_scraped', 0)} scraped so far"
+    # Done/Failed/Paused all name the moment the run ENDED, so they read finished_at.
+    # started_at would make an 8h run that stopped a minute ago read "8 hours ago".
+    when = relative_time(run.get("finished_at") or run.get("started_at"))
     note = (
         f"{run.get('jobs_scored', 0)} scored · {run.get('jobs_matched', 0)} matched"
         f"{_duration(run.get('started_at'), run.get('finished_at'))}"
     )
     if status == "failed":
         return "fail", f"Failed · {when}", note
+    if status == "paused":
+        return "warn", f"Paused · {when}", note
+    if status == "stopped":
+        return "warn", f"Stopped · {when}", note
     return "ok", f"Done · {when}", note
 
 
@@ -180,9 +190,14 @@ def _pipeline_state(curr: dict | None, last: dict | None) -> tuple[str, str, str
         return "ok", f"Running · {stage}", detail
     if not last:
         return "idle", "Ready", "No run recorded yet"
-    when = relative_time(last.get("started_at"))
+    # Same rule as _last_run_state: these labels describe a finished run.
+    when = relative_time(last.get("finished_at") or last.get("started_at"))
     if last.get("status") == "failed":
         return "fail", f"Failed · {when}", last.get("error") or "Check run history"
+    if last.get("status") == "paused":
+        return "warn", f"Paused · {when}", "Resume from the Workflow tab"
+    if last.get("status") == "stopped":
+        return "warn", f"Stopped · {when}", "Start a fresh run when ready"
     return "ok", f"Ready · {when}", f"{last.get('jobs_scored', 0)} scored · {last.get('jobs_matched', 0)} matched"
 
 
@@ -246,9 +261,56 @@ def _duration(started: str | None, finished: str | None) -> str:
     return f" · {seconds}s" if seconds < 60 else f" · {seconds // 60}m {seconds % 60}s"
 
 
+PAUSE_TIP = (
+    "Lets the job being scored finish and saves it, then stops. Everything not yet scored stays queued, so Resume picks up exactly where this left off."
+)
+
+STOP_TIP = (
+    "Kills the job being scored straight away, losing that one result. The run ends and cannot be resumed - starting again runs a full fresh cycle. The nightly schedule is unaffected."
+)
+
+
+def _action_button(
+    label: str,
+    key: str,
+    icon: str,
+    call,
+    toast: str,
+    error_prefix: str,
+    *,
+    primary: bool = False,
+    invalidate: bool = False,
+    tooltip: str | None = None,
+) -> None:
+    """Every pipeline control has the same shape: fire the call, report the outcome,
+    rerun. `call` returns the (ok, message) pair the api module hands back."""
+    kind = {"type": "primary"} if primary else {}
+    if not st.button(label, icon=icon, width="stretch", key=key, help=tooltip, **kind):
+        return
+    ok, msg = call()
+    if ok:
+        st.toast(toast, icon="✅")
+    else:
+        st.error(f"{error_prefix}: {msg}")
+    if invalidate:
+        _invalidate_settings()
+    st.rerun()
+
+
 @st.fragment(run_every=2)
-def _render_workflow(health: dict):
+def _render_workflow():
+    # Read inside the fragment, never passed in: a fragment reruns with the arguments
+    # captured at the last full app run, so a health dict taken as a parameter would
+    # freeze while curr kept refreshing. The running -> paused transition would then
+    # render the idle "Run now" panel instead of Resume until something reran the page.
     curr = get_current_run()
+
+    # Clears the history table and the last-run panel as well as the shared counts,
+    # which is why this clears more than the sidebar does.
+    if library.run_ended(curr is not None, "workflow"):
+        _invalidate_settings()
+
+    health = _health()
     with st.container(border=True):
         section_head(
             "Job Pipeline",
@@ -278,16 +340,74 @@ def _render_workflow(health: dict):
                 for ev in reversed(events):
                     lvl = ev.get("level", "info")
                     st.text(f"[{ev.get('stage')}] ({lvl}) {ev.get('message')}")
+
+            st.markdown('<div class="card-rule"></div>', unsafe_allow_html=True)
+            if curr.get("stop_requested"):
+                st.warning("Stopping — ending the run now.",
+                           icon=":material/stop_circle:")
+            elif curr.get("pause_requested"):
+                # A toast vanishes in seconds while the pause waits for the current
+                # LLM call to return, which reads as "the click did nothing".
+                st.warning(
+                    "Pausing — finishing the step in flight, then stopping. "
+                    "A scrape or a scoring call has to return first.",
+                    icon=":material/pause_circle:",
+                )
+            else:
+                pause_col, stop_col, _ = st.columns(
+                    [2, 2, 3], vertical_alignment="center"
+                )
+                with pause_col:
+                    _action_button(
+                        "Pause", "pause_run", ":material/pause:", pause_run,
+                        "Pausing after the current job", "Could not pause",
+                        tooltip=PAUSE_TIP,
+                    )
+                with stop_col:
+                    _action_button(
+                        "Stop", "stop_run", ":material/stop:", stop_run,
+                        "Stopping now", "Could not stop",
+                        tooltip=STOP_TIP,
+                    )
+                st.caption(
+                    "Pause finishes the current job and can be resumed. "
+                    "Stop kills it now and cannot be resumed."
+                )
+        elif (health.get("last_run") or {}).get("status") == "paused":
+            queued = health.get("queue", 0)
+            st.markdown("### Paused")
+            st.markdown(
+                f"**{queued:,} job{'' if queued == 1 else 's'} still queued.** "
+                "The scheduled run will not start while the workflow is paused."
+            )
+            resume_col, fresh_col, _ = st.columns([2, 2, 3], vertical_alignment="center")
+            with resume_col:
+                _action_button(
+                    "Resume", "resume_run", ":material/play_arrow:", resume_run,
+                    "Resuming the queue", "Could not resume",
+                    primary=True, invalidate=True,
+                )
+            with fresh_col:
+                _action_button(
+                    "Start fresh run", "fresh_run", ":material/refresh:", trigger_run,
+                    "Fresh run started in background", "Failed to start run",
+                    invalidate=True,
+                )
+            st.caption(
+                "Resume scores the leftover queue without re-scraping. "
+                "Start fresh run scrapes every source again first."
+            )
+
+            st.markdown('<div class="card-rule"></div>', unsafe_allow_html=True)
+            _render_last_run(health.get("last_run"))
         else:
             run_col, _ = st.columns([2, 5], vertical_alignment="center")
             with run_col:
-                if st.button("Run now", type="primary", icon=":material/play_arrow:", width="stretch", key="run_now"):
-                    ok, msg = trigger_run()
-                    if ok:
-                        st.toast("Run started in background", icon="✅")
-                    else:
-                        st.error(f"Failed to start run: {msg}")
-                    st.rerun()
+                _action_button(
+                    "Run now", "run_now", ":material/play_arrow:", trigger_run,
+                    "Run started in background", "Failed to start run",
+                    primary=True,
+                )
 
             st.markdown('<div class="card-rule"></div>', unsafe_allow_html=True)
             _render_last_run(health.get("last_run"))
@@ -763,7 +883,13 @@ def _render_danger_zone():
 
 # ── history ─────────────────────────────────────────────────────────────────
 
-STATUS_GLYPH = {"success": "✓ Done", "failed": "✗ Failed", "running": "⟳ Running"}
+STATUS_GLYPH = {
+    "success": "✓ Done",
+    "failed": "✗ Failed",
+    "running": "⟳ Running",
+    "paused": "⏸ Paused",
+    "stopped": "■ Stopped",
+}
 
 
 def _render_history():
@@ -875,7 +1001,7 @@ def render_settings_tab():
             ["Workflow", "CV", "Searches", "Data", "History"]
         )
         with workflow:
-            _render_workflow(_health())
+            _render_workflow()
         with cv:
             _render_cv()
         with searches:

@@ -5,6 +5,7 @@ from sqlmodel.pool import StaticPool
 import src.database.models  # noqa: F401
 from src.database.core import get_session
 from src.database.repositories import WorkflowRunRepository, RunEventRepository
+from src.database.models.enums import RunStatus
 from src.services.run_context import set_current_progress
 from src.main import app
 
@@ -100,5 +101,92 @@ def test_list_runs_does_not_fail_a_live_run():
         assert res.status_code == 200
         rows = {r["id"]: r for r in res.json()}
         assert rows[run_id]["status"] == "running", "a fresh run was expired by a read"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _client_on(engine):
+    def override_get_session():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    return TestClient(app)
+
+
+def test_pause_conflicts_when_nothing_is_running():
+    set_current_progress(None)
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    client = _client_on(engine)
+    try:
+        assert client.post("/api/runs/pause").status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_pause_accepted_while_a_run_is_live():
+    set_current_progress(None)
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    client = _client_on(engine)
+    try:
+        with Session(engine) as session:
+            WorkflowRunRepository(session).start(trigger="manual")
+            session.commit()
+        res = client.post("/api/runs/pause")
+        assert res.status_code == 202
+        assert res.json() == {"status": "pausing"}
+    finally:
+        app.dependency_overrides.clear()
+        from src.services.pipeline import _pause_event
+
+        _pause_event.clear()
+
+
+def test_resume_conflicts_when_nothing_is_paused():
+    set_current_progress(None)
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    client = _client_on(engine)
+    try:
+        assert client.post("/api/runs/resume").status_code == 409
+        with Session(engine) as session:
+            WorkflowRunRepository(session).start(trigger="manual")
+            session.commit()
+        assert client.post("/api/runs/resume").status_code == 409, "resumed a running run"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_resume_accepted_when_the_newest_run_is_paused():
+    set_current_progress(None)
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    client = _client_on(engine)
+    try:
+        with Session(engine) as session:
+            run = WorkflowRunRepository(session).start(trigger="manual")
+            run.status = RunStatus.PAUSED.value
+            session.commit()
+        res = client.post("/api/runs/resume")
+        assert res.status_code == 202
+        assert res.json() == {"status": "resuming"}
     finally:
         app.dependency_overrides.clear()

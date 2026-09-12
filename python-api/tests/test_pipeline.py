@@ -14,6 +14,7 @@ from src.database.models import PendingJob, FilteredJob, WorkflowRun
 from src.database.models.enums import AiStatus
 from src.schemas.jobs import PendingJobRequest
 from src.services import pipeline as pipeline_module
+from src.services.run_context import get_current_progress
 from src.services import settings as settings_module
 
 
@@ -176,3 +177,14 @@ def test_pipeline_marks_below_threshold_not_fit(harness, monkeypatch):
         by_id = {j.id: j for j in session.exec(select(FilteredJob)).all()}
         assert by_id["low"].ai_status == AiStatus.NOT_FIT
         assert by_id["high"].ai_status == AiStatus.FIT
+
+
+def test_progress_is_cleared_when_a_run_ends(harness, monkeypatch):
+    """Progress is a process global. A stale value makes GET /api/runs/current
+    report a finished run as live forever, which hides the dashboard run controls."""
+    monkeypatch.setattr(pipeline_module, "SOURCES", {"stub": lambda ctx, kw: [_job("a")]})
+    monkeypatch.setattr(pipeline_module, "score_job", lambda ctx, job, cv: (80, "letter"))
+
+    pipeline_module.run_pipeline("manual")
+
+    assert get_current_progress() is None, "finished run left behind in Progress"

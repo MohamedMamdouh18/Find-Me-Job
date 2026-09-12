@@ -4,6 +4,7 @@ import re
 
 from ..schemas.jobs import PendingJobRequest
 from ..services.http import get
+from ..services.run_context import PauseRequested
 from ..services.run_context import RunContext
 
 logger = logging.getLogger(__name__)
@@ -106,7 +107,8 @@ def fetch(ctx: RunContext, keywords: dict) -> list[PendingJobRequest]:
     ctx.emit("scrape.remoteok.start", "Fetching RemoteOK jobs API")
     url = "https://remoteok.com/api"
     try:
-        res = get(url, timeout=30.0, tries=3, wait=5.0, headers={"User-Agent": "Mozilla/5.0"})
+        res = get(url, timeout=30.0, tries=3, wait=5.0,
+                  headers={"User-Agent": "Mozilla/5.0"}, interrupt=ctx.interrupt)
         data = res.json()
         if not isinstance(data, list):
             logger.warning(f"Unexpected RemoteOK response type: {type(data)}")
@@ -120,6 +122,9 @@ def fetch(ctx: RunContext, keywords: dict) -> list[PendingJobRequest]:
             context={"found": len(jobs)},
         )
         return jobs
+    except PauseRequested:
+        # Not a scraper failure; the blanket handler below would log it as an error.
+        raise
     except Exception as e:
         logger.warning(f"RemoteOK scrape failed: {e}")
         ctx.emit("scrape.remoteok.failed", f"RemoteOK scrape failed: {e}", level="error")

@@ -4,6 +4,7 @@ import re
 
 from . import settings
 from .llm import call_llm, parse_llm_json
+from .run_context import PauseRequested
 from .run_context import RunContext
 from ..database.models import PendingJob
 from ..shared import PARAMS_DIR, email_service, send_telegram
@@ -63,8 +64,12 @@ def process_and_send_email_if_needed(
     ]
 
     try:
-        raw_response = call_llm(messages)
+        raw_response = call_llm(messages, interrupt=ctx.interrupt)
         parsed = parse_llm_json(raw_response)
+    except PauseRequested:
+        # Must not be swallowed as "extraction failed": the pipeline needs to see it
+        # to end the run as paused/stopped instead of carrying on to the next job.
+        raise
     except Exception as e:
         logger.warning(f"LLM email extraction failed for job {job.id}: {e}")
         return False
@@ -78,6 +83,11 @@ def process_and_send_email_if_needed(
 
     if not recipient_email or "@" not in recipient_email:
         return False
+
+    # smtplib is not an httpx client, so net_abort cannot kill a send already in
+    # flight. Checking here at least means a stop does not start a new one.
+    if ctx.interrupt is not None and ctx.interrupt.is_set():
+        raise PauseRequested("run interrupted before sending the application email")
 
     if email_service:
         try:

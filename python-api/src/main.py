@@ -19,6 +19,7 @@ from .routes import (
     runs_router,
     starred_router,
 )
+from .database.models.enums import RunTrigger
 from .services.pipeline import run_pipeline
 from .services.run_context import RunIdFilter
 from .shared import TIMEZONE, detect_tunnel_url_and_send_notification, scheduler
@@ -45,7 +46,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         run_pipeline,
         CronTrigger(hour=1, minute=0, timezone=TIMEZONE),
-        args=["schedule"],
+        args=[RunTrigger.SCHEDULE.value],
         id="pipeline",
         max_instances=1,
         coalesce=True,

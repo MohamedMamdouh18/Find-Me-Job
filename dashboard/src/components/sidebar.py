@@ -12,7 +12,7 @@ import segno
 import streamlit as st
 
 import library
-from api import get_dashboard_public_url
+from api import get_current_run, get_dashboard_public_url
 from components.ui import relative_time, status_dot
 
 PAGES = ["Analytics", "Jobs", "Companies", "Settings"]
@@ -44,17 +44,32 @@ def _pipeline_line(hlth: dict) -> tuple[str, str]:
         return "idle", "Pipeline ready"
     if last.get("status") == "failed":
         return "fail", "Last run failed"
+    if last.get("status") == "paused":
+        return "warn", "Pipeline paused"
+    if last.get("status") == "stopped":
+        return "warn", "Last run stopped"
     return "ok", "Pipeline ready"
 
 
 @st.fragment(run_every=STRIP_TTL)
 def _status_block():
     """Polls on its own so the page body never reruns underneath the cursor."""
+    # Uncached, so this fragment sees a run end on the tick it happens rather than
+    # when the health TTL lapses. Without it the sidebar kept saying "Running" on
+    # every page that is not Settings.
+    curr = get_current_run()
+    if library.run_ended(curr is not None, "sidebar"):
+        library.refresh()
+
     counts = library.stats()
-    hlth = library.health()
+    hlth = {**library.health(), "current_run": curr}
     tone, text = _pipeline_line(hlth)
     run = hlth["last_run"]
-    when = relative_time(run.get("started_at")) if run else "never"
+    # Same rule as settings_tab._last_run_state: a finished run is named by when
+    # it ENDED. started_at made an 8h run that stopped a minute ago read "8 hours ago".
+    when = relative_time(
+        (run.get("finished_at") or run.get("started_at")) if run else None
+    ) if run else "never"
 
     st.markdown(
         f'<div class="side-status">'

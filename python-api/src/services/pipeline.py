@@ -6,11 +6,17 @@ from . import settings
 from .emailing import process_and_send_email_if_needed
 from .intake import save_pending_job
 from .keywords import extract_or_get_keywords
-from .run_context import RunContext, redact_secrets
+from .net_abort import abort_active_calls
+from .run_context import (
+    PauseRequested,
+    RunContext,
+    redact_secrets,
+    set_current_progress,
+)
 from .scoring import score_job
 from ..database.core import engine
 from ..database.models import FilteredJob
-from ..database.models.enums import AiStatus, UserStatus
+from ..database.models.enums import AiStatus, RunStatus, RunTrigger, UserStatus
 from ..database.repositories import (
     FilteredJobRepository,
     PendingJobRepository,
@@ -23,8 +29,53 @@ from ..shared import send_telegram
 logger = logging.getLogger(__name__)
 _run_lock = threading.Lock()
 
+# Pause is cooperative: the route sets this event, the scoring loop notices it between
+# jobs, and ctx.wait() returns early so the signal is not sat on for a whole delay.
+# A plain Event is enough because the pipeline runs on an APScheduler thread in this
+# same process — the same reason Progress can be a process global.
+_pause_event = threading.Event()
 
-def run_pipeline(trigger: str = "schedule") -> None:
+
+# Stop is pause plus two things: it kills the in-flight LLM call instead of waiting
+# for it, and it ends the run in a state resume refuses. Setting _pause_event too
+# means every place that already watches for an interrupt needs no second check.
+_stop_event = threading.Event()
+
+
+def request_pause() -> None:
+    _pause_event.set()
+
+
+def request_stop() -> None:
+    _stop_event.set()
+    _pause_event.set()
+    abort_active_calls()
+
+
+def is_pause_requested() -> bool:
+    """Read by GET /api/runs/current so the dashboard can show an interrupt that has
+    been asked for but not yet landed — otherwise the run looks like it ignored the
+    click."""
+    return _pause_event.is_set()
+
+
+def is_stop_requested() -> bool:
+    return _stop_event.is_set()
+
+
+def _emit_interrupted(ctx: RunContext, run_id: int, done: int, total: int) -> None:
+    stopped = _stop_event.is_set()
+    word = "stopped" if stopped else "paused"
+    ctx.emit(
+        f"run.{word}",
+        f"Run {run_id} {word} with {total - done} jobs still queued",
+        detail=f"{word.capitalize()} after {done} of {total}",
+        done=done,
+        total=total,
+    )
+
+
+def run_pipeline(trigger: str = RunTrigger.SCHEDULE.value) -> None:
     """Orchestrates a complete job search, scrape, score, email, and notify cycle."""
     if not _run_lock.acquire(blocking=False):
         logger.warning("Pipeline run already in progress, skipping")
@@ -33,19 +84,54 @@ def run_pipeline(trigger: str = "schedule") -> None:
     try:
         with Session(engine) as session:
             run_repo = WorkflowRunRepository(session)
+
+            # A deliberate pause outranks the schedule: the cron does not silently
+            # override it. Manual triggers and resume do, since those are the user
+            # asking for work now. get_latest() is used rather than get_recent()
+            # because the latter expires stale rows as a side effect.
+            if trigger == RunTrigger.SCHEDULE:
+                latest = run_repo.get_latest()
+                if latest and latest.status == RunStatus.PAUSED:
+                    logger.info(
+                        "Workflow is paused (run %s); skipping the scheduled run", latest.id
+                    )
+                    return
+
             run = run_repo.start(trigger=trigger)
             session.commit()
 
-            ctx = RunContext(run.id, session)
+            # A pause requested before this run started is not this run's business.
+            _pause_event.clear()
+            _stop_event.clear()
+            ctx = RunContext(run.id, session, interrupt=_pause_event)
             ctx.emit("run.start", f"Run {run.id} started via {trigger}")
 
+            paused = False
             try:
-                # 1. Keywords from CV
-                cv_text, keywords = extract_or_get_keywords(ctx)
+                # 1. Keywords from CV. Interruptible: the CV call hits the LLM when
+                # the hash changed, and that is a phase a stop must not sit through.
+                try:
+                    cv_text, keywords = extract_or_get_keywords(ctx)
+                except PauseRequested:
+                    paused = True
+                    cv_text, keywords = "", {}
+                    _emit_interrupted(ctx, run.id, 0, 0)
 
-                # 2. Scrape each configured source
+                # 2. Scrape each configured source.
+                # A resume picks up where a paused run stopped, so it skips scraping
+                # entirely: the leftover queue IS the remaining work. Keywords are
+                # still read above because scoring needs cv_text, and that call only
+                # hits the LLM when the CV hash changed.
                 total_queued = 0
-                for source_name, fetch_fn in SOURCES.items():
+                sources = {} if paused else SOURCES
+                if trigger == RunTrigger.RESUME:
+                    sources = {}
+                    ctx.emit("scrape.skipped", "Resuming a paused run; not re-scraping")
+                for source_name, fetch_fn in sources.items():
+                    # Between sources, so a stop does not sit through every scraper.
+                    if _pause_event.is_set():
+                        paused = True
+                        break
                     try:
                         jobs = fetch_fn(ctx, keywords)
                         queued_count = sum(
@@ -56,6 +142,10 @@ def run_pipeline(trigger: str = "schedule") -> None:
                             f"scrape.{source_name}.saved",
                             f"Saved {queued_count} new pending jobs from {source_name}",
                         )
+                    except PauseRequested:
+                        # Not a source failure; must not be swallowed as one.
+                        paused = True
+                        break
                     except Exception as e:
                         logger.exception(f"Scraper {source_name} failed: {e}")
                         ctx.emit(
@@ -77,8 +167,16 @@ def run_pipeline(trigger: str = "schedule") -> None:
                 auto_email = settings.get_auto_email()
 
                 scoring_failures = 0
-                for idx, job in enumerate(pending_jobs, 1):
+                for idx, job in enumerate(pending_jobs if not paused else [], 1):
                     ctx.wait(scoring_delay)
+
+                    # The row just scored is already committed and drained, so the
+                    # untouched remainder of the queue is what a resume has left.
+                    if _pause_event.is_set():
+                        paused = True
+                        _emit_interrupted(ctx, run.id, idx - 1, queue_depth)
+                        break
+
                     ctx.emit(
                         "score.start",
                         f"Scoring job {idx}/{queue_depth}: {job.title} at {job.company}",
@@ -89,6 +187,12 @@ def run_pipeline(trigger: str = "schedule") -> None:
 
                     try:
                         score, cover_letter = score_job(ctx, job, cv_text)
+                    except PauseRequested:
+                        # Not a failure. Nothing was written or drained for this job,
+                        # so it stays queued and a resume re-scores it from the top.
+                        paused = True
+                        _emit_interrupted(ctx, run.id, idx - 1, queue_depth)
+                        break
                     except Exception as e:
                         # Isolate per job, like the scraper loop above. The row is dropped
                         # rather than left queued: it is already recorded in seen_jobs, so
@@ -146,26 +250,64 @@ def run_pipeline(trigger: str = "schedule") -> None:
                         total=queue_depth,
                     )
 
+                # A pause is only observed between jobs, so a request arriving in a
+                # phase the loop never reaches — during scraping with nothing left to
+                # queue, or while the final job was being scored — would otherwise be
+                # dropped, and the 01:00 cron would start as if nothing happened.
+                paused = paused or _pause_event.is_set()
+
                 # 4. Finish run and derive stats.
                 # jobs_scraped is what this run actually queued, not the queue depth:
                 # the queue can still hold rows this run did not scrape.
-                run_repo.finish(run.id, status="success", jobs_scraped=total_queued)
+                # Pausing closes the row too: finished_at bounds the window finish()
+                # counts over, so the stats describe the segment that actually ran.
+                if paused:
+                    final_status = (
+                        RunStatus.STOPPED if _stop_event.is_set() else RunStatus.PAUSED
+                    )
+                else:
+                    final_status = RunStatus.SUCCESS
+                run_repo.finish(run.id, status=final_status.value, jobs_scraped=total_queued)
                 session.commit()
-                ctx.emit(
-                    "run.finish",
-                    f"Run {run.id} finished successfully. Scored: {run.jobs_scored}, Matched: {run.jobs_matched}",
-                )
 
                 failures_line = (
                     f" | Failed: {scoring_failures}" if scoring_failures else ""
                 )
-                summary_text = (
-                    f"Find Me a Job run finished\n"
-                    f"Scraped: {run.jobs_scraped} | Scored: {run.jobs_scored} | "
-                    f"Fit: {run.jobs_matched}{failures_line}\n"
-                    # read through the module: shared.DASHBOARD_URL is rebound after tunnel detection
-                    f"Dashboard: {shared.DASHBOARD_URL}"
-                )
+
+                if paused:
+                    left = pending_repo.count()
+                    # A stopped run is not resumable, so it must not be described as
+                    # paused nor pointed at a Resume that answers 409.
+                    stopped = final_status is RunStatus.STOPPED
+                    word = "stopped" if stopped else "paused"
+                    next_step = (
+                        "Start a fresh run from the dashboard"
+                        if stopped
+                        else "Resume from the dashboard"
+                    )
+                    ctx.emit(
+                        "run.finish",
+                        f"Run {run.id} {word}. Scored: {run.jobs_scored}, {left} still queued",
+                    )
+                    summary_text = (
+                        f"Find Me a Job run {word}\n"
+                        f"Scored: {run.jobs_scored} | Fit: {run.jobs_matched}"
+                        f"{failures_line} | Still queued: {left}\n"
+                        f"{next_step}: {shared.DASHBOARD_URL}"
+                    )
+                else:
+                    ctx.emit(
+                        "run.finish",
+                        f"Run {run.id} finished successfully. Scored: {run.jobs_scored}, Matched: {run.jobs_matched}",
+                    )
+                    summary_text = (
+                        f"Find Me a Job run finished\n"
+                        f"Scraped: {run.jobs_scraped} | Scored: {run.jobs_scored} | "
+                        f"Fit: {run.jobs_matched}{failures_line}\n"
+                        # read through the module: shared.DASHBOARD_URL is rebound after tunnel detection
+                        f"Dashboard: {shared.DASHBOARD_URL}"
+                    )
+
                 send_telegram(summary_text)
 
             except Exception as e:
@@ -178,11 +320,19 @@ def run_pipeline(trigger: str = "schedule") -> None:
                 )
                 # workflow_runs.error is rendered in the dashboard, so it is the same
                 # class of sink as a log line and gets the same redaction.
-                run_repo.finish(run.id, status="failed", error=redact_secrets(str(e)))
+                run_repo.finish(
+                    run.id, status=RunStatus.FAILED.value, error=redact_secrets(str(e))
+                )
                 session.commit()
 
             finally:
                 ctx.reset()
+                # Progress is a process global. Leaving the finished run in it makes
+                # GET /api/runs/current report a live run forever, which hides the
+                # dashboard's run controls until the container restarts.
+                set_current_progress(None)
+                _pause_event.clear()
+                _stop_event.clear()
 
     finally:
         _run_lock.release()

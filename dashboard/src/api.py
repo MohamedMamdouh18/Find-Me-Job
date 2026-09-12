@@ -521,6 +521,39 @@ def trigger_run() -> tuple[bool, str]:
 
 
 
+def pause_run() -> tuple[bool, str]:
+    """POST to /api/runs/pause. The run stops after the job it is on."""
+    try:
+        resp = _session.post(f"{API}/runs/pause", timeout=10)
+        if resp.status_code in (200, 201, 202):
+            return True, "Pausing after the current job."
+        return False, _error_detail(resp)
+    except requests.RequestException as e:
+        return False, f"Could not reach API: {e}"
+
+
+def stop_run() -> tuple[bool, str]:
+    """POST to /api/runs/stop. Kills the job being scored; the run is not resumable."""
+    try:
+        resp = _session.post(f"{API}/runs/stop", timeout=10)
+        if resp.status_code in (200, 201, 202):
+            return True, "Stopping now."
+        return False, _error_detail(resp)
+    except requests.RequestException as e:
+        return False, f"Could not reach API: {e}"
+
+
+def resume_run() -> tuple[bool, str]:
+    """POST to /api/runs/resume. Scores the leftover queue without re-scraping."""
+    try:
+        resp = _session.post(f"{API}/runs/resume", timeout=10)
+        if resp.status_code in (200, 201, 202):
+            return True, "Resuming the paused run."
+        return False, _error_detail(resp)
+    except requests.RequestException as e:
+        return False, f"Could not reach API: {e}"
+
+
 def get_current_run() -> dict | None:
     """Fetch live in-process progress and countdown from /api/runs/current."""
     try:

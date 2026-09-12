@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, select, func
 
 from ..models import FilteredJob, WorkflowRun
-from ..models.enums import AiStatus
+from ..models.enums import AiStatus, RunStatus, RunTrigger
 from ...shared import now
 
 # A run still marked "running" after this long is treated as dead, not in progress.
@@ -14,10 +14,10 @@ class WorkflowRunRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def start(self, trigger: str = "schedule") -> WorkflowRun:
+    def start(self, trigger: str = RunTrigger.SCHEDULE.value) -> WorkflowRun:
         """Open a new run, first closing out any earlier run that never reported back."""
         self._fail_stale_runs("superseded by a newer run")
-        run = WorkflowRun(trigger=trigger, status="running", started_at=now())
+        run = WorkflowRun(trigger=trigger, status=RunStatus.RUNNING.value, started_at=now())
         self.session.add(run)
         return run
 
@@ -27,10 +27,10 @@ class WorkflowRunRepository:
 
     def _fail_stale_runs(self, reason: str):
         stale = self.session.exec(
-            select(WorkflowRun).where(WorkflowRun.status == "running")
+            select(WorkflowRun).where(WorkflowRun.status == RunStatus.RUNNING.value)
         ).all()
         for run in stale:
-            run.status = "failed"
+            run.status = RunStatus.FAILED.value
             run.finished_at = now()
             run.error = run.error or reason
             self.session.add(run)
@@ -38,7 +38,7 @@ class WorkflowRunRepository:
     def finish(
         self,
         run_id: int,
-        status: str = "success",
+        status: str = RunStatus.SUCCESS.value,
         error: str | None = None,
         jobs_scraped: int | None = None,
     ) -> WorkflowRun | None:
@@ -81,11 +81,21 @@ class WorkflowRunRepository:
         )
         return list(self.session.exec(statement).all())
 
+    def get_latest(self) -> WorkflowRun | None:
+        """Newest run row whatever its status, with no expiry side effect.
+
+        get_recent() cannot be used to ask "is the workflow paused?" because it
+        calls _expire_stale_runs() and would mutate rows during a plain read.
+        """
+        return self.session.exec(
+            select(WorkflowRun).order_by(WorkflowRun.started_at.desc())  # type: ignore[arg-type]
+        ).first()
+
     def get_running(self) -> WorkflowRun | None:
         """Newest run still marked running, for recovery after a mid-run restart."""
         return self.session.exec(
             select(WorkflowRun)
-            .where(WorkflowRun.status == "running")
+            .where(WorkflowRun.status == RunStatus.RUNNING.value)
             .order_by(WorkflowRun.started_at.desc())  # type: ignore[arg-type]
         ).first()
 
@@ -94,11 +104,11 @@ class WorkflowRunRepository:
         cutoff = now() - timedelta(hours=STALE_RUN_HOURS)
         stale = self.session.exec(
             select(WorkflowRun)
-            .where(WorkflowRun.status == "running")
+            .where(WorkflowRun.status == RunStatus.RUNNING.value)
             .where(WorkflowRun.started_at < cutoff)
         ).all()
         for run in stale:
-            run.status = "failed"
+            run.status = RunStatus.FAILED.value
             run.finished_at = run.finished_at or now()
             run.error = run.error or f"no completion reported within {STALE_RUN_HOURS}h"
             self.session.add(run)

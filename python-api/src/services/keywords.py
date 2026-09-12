@@ -66,7 +66,7 @@ def extract_or_get_keywords(
         {"role": "user", "content": full_prompt},
     ]
 
-    raw_response = call_llm(messages)
+    raw_response = call_llm(messages, interrupt=ctx.interrupt)
     try:
         keywords = parse_llm_json(raw_response)
         # Ensure schema structure

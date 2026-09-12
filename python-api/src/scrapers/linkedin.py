@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from ..schemas.jobs import PendingJobRequest
 from ..services.http import get
+from ..services.run_context import PauseRequested
 from ..services.run_context import RunContext
 from ..shared import PARAMS_DIR
 
@@ -158,57 +159,90 @@ def fetch(ctx: RunContext, keywords: dict) -> list[PendingJobRequest]:
     searches = data.get("searches", [])
     ctx.emit("scrape.linkedin.start", f"Starting LinkedIn scrape with {len(searches)} search criteria")
 
+    # Declared before the loops so an interrupt can still return what was collected.
+    # fetch() only hands its jobs to the pipeline on return, so letting PauseRequested
+    # escape would silently bin every page scraped so far - and resume does not
+    # re-scrape, so those postings would never come back.
+    jobs: list[PendingJobRequest] = []
     collected_links: list[tuple[str, str]] = []
     seen_link_ids: set[str] = set()
 
-    for idx, s in enumerate(searches, 1):
-        search_url = build_linkedin_search_url(s)
-        try:
-            res = get(search_url, timeout=25.0, tries=3, wait=5.0)
-            links = parse_search_links(res.text)
-            for clean_url, jid in links:
-                if jid not in seen_link_ids:
-                    seen_link_ids.add(jid)
-                    collected_links.append((clean_url, jid))
-        except Exception as e:
-            logger.warning(f"LinkedIn search {idx} failed: {e}")
-            ctx.emit("scrape.linkedin.search_failed", f"Search {idx} failed: {e}", level="warning")
+    try:
+        for idx, s in enumerate(searches, 1):
+            if ctx.interrupt is not None and ctx.interrupt.is_set():
+                raise PauseRequested("run interrupted between LinkedIn searches")
+            search_url = build_linkedin_search_url(s)
+            try:
+                res = get(search_url, timeout=25.0, tries=3, wait=5.0,
+                          interrupt=ctx.interrupt)
+                links = parse_search_links(res.text)
+                for clean_url, jid in links:
+                    if jid not in seen_link_ids:
+                        seen_link_ids.add(jid)
+                        collected_links.append((clean_url, jid))
+            except PauseRequested:
+                # An interrupt is not a failed search; it must reach the pipeline.
+                raise
+            except Exception as e:
+                logger.warning(f"LinkedIn search {idx} failed: {e}")
+                ctx.emit("scrape.linkedin.search_failed", f"Search {idx} failed: {e}", level="warning")
 
-    total_links = len(collected_links)
-    jobs: list[PendingJobRequest] = []
+        total_links = len(collected_links)
 
-    for i, (job_url, link_job_id) in enumerate(collected_links, 1):
-        ctx.emit(
-            "scrape.linkedin.progress",
-            f"Fetching LinkedIn job page {i}/{total_links}",
-            detail=f"Page {i} of {total_links}",
-            done=i,
-            total=total_links,
-        )
-        time.sleep(1)
-        try:
-            res = get(job_url, timeout=20.0, tries=2, wait=3.0)
-            job = parse_job_page(res.text, link_job_id)
-            if job and job.title and job.description:
-                jobs.append(job)
-            else:
-                # A silent drop here is how a selector change becomes an empty run with
-                # no explanation. Keep enough HTML to tell "layout changed" from "empty".
-                ctx.emit(
-                    "scrape.linkedin.dropped",
-                    f"Dropped LinkedIn job {link_job_id}: no title or description parsed",
-                    level="warning",
-                    context={"url": job_url, "html": res.text[:2000]},
-                )
-        except Exception as e:
-            logger.warning(f"Failed to fetch LinkedIn job {job_url}: {e}")
+        for i, (job_url, link_job_id) in enumerate(collected_links, 1):
             ctx.emit(
-                "scrape.linkedin.fetch_failed",
-                f"Failed to fetch LinkedIn job {link_job_id}: {e}",
-                level="error",
-                context={"url": job_url, "error": str(e)},
+                "scrape.linkedin.progress",
+                f"Fetching LinkedIn job page {i}/{total_links}",
+                detail=f"Page {i} of {total_links}",
+                done=i,
+                total=total_links,
             )
-            continue
+            # Interruptible: this loop runs once per job page, so sleeping through it
+            # is what made a stop during scraping take minutes to land.
+            if ctx.interrupt is not None:
+                if ctx.interrupt.is_set():
+                    raise PauseRequested("run interrupted between LinkedIn job pages")
+                ctx.interrupt.wait(1)
+            else:
+                time.sleep(1)
+            try:
+                res = get(job_url, timeout=20.0, tries=2, wait=3.0,
+                          interrupt=ctx.interrupt)
+                job = parse_job_page(res.text, link_job_id)
+                if job and job.title and job.description:
+                    jobs.append(job)
+                else:
+                    # A silent drop here is how a selector change becomes an empty run with
+                    # no explanation. Keep enough HTML to tell "layout changed" from "empty".
+                    ctx.emit(
+                        "scrape.linkedin.dropped",
+                        f"Dropped LinkedIn job {link_job_id}: no title or description parsed",
+                        level="warning",
+                        context={"url": job_url, "html": res.text[:2000]},
+                    )
+            except PauseRequested:
+                # As above: an interrupt must not be logged as a per-page fetch failure
+                # and swallowed, or the loop keeps going through every remaining page.
+                raise
+            except Exception as e:
+                logger.warning(f"Failed to fetch LinkedIn job {job_url}: {e}")
+                ctx.emit(
+                    "scrape.linkedin.fetch_failed",
+                    f"Failed to fetch LinkedIn job {link_job_id}: {e}",
+                    level="error",
+                    context={"url": job_url, "error": str(e)},
+                )
+                continue
+
+    except PauseRequested:
+        # Return what was scraped rather than raising: the pipeline queues these,
+        # then sees the interrupt on its own between-sources check. Raising here
+        # would discard every page collected so far and resume never re-scrapes.
+        ctx.emit(
+            "scrape.linkedin.interrupted",
+            f"LinkedIn scrape interrupted; keeping {len(jobs)} jobs already parsed",
+            level="warning",
+        )
 
     ctx.emit(
         "scrape.linkedin.done",

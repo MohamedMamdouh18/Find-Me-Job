@@ -104,6 +104,24 @@ def refresh():
         fn.clear()  # type: ignore[attr-defined]
 
 
+def run_ended(is_live: bool, watcher: str) -> bool:
+    """True on the one tick where a live run became not-live, for `watcher`.
+
+    A run ending is the moment every cached count here is guaranteed wrong, and
+    nothing else invalidates them: the pipeline cannot reach Streamlit's cache and
+    the buttons only know what the user clicked. Whoever polls an UNCACHED current
+    run sees the edge first and clears on it, so the terminal status appears at once
+    rather than whenever a TTL happens to lapse.
+
+    Each watcher keeps its own flag: the sidebar and the Workflow tab clear
+    different sets, so one must not swallow the other's edge.
+    """
+    key = f"_run_was_live_{watcher}"
+    was_live = st.session_state.get(key, False)
+    st.session_state[key] = is_live
+    return bool(was_live and not is_live)
+
+
 # ── needs attention ─────────────────────────────────────────────────────────
 
 # (page, view) the caller can jump to; the caller owns navigation, this owns
@@ -124,6 +142,18 @@ def attention(counts: dict, hlth: dict) -> list[dict]:
             "tone": "ok",
             "text": f"Pipeline is running: {current_run.get('stage', 'in progress')}.",
             "action": "View live", "page": "Settings",
+        })
+    elif last_run and last_run.get("status") == "paused":
+        items.append({
+            "tone": "warn",
+            "text": f"Pipeline is paused with {queue:,} jobs still queued.",
+            "action": "Resume", "page": "Settings",
+        })
+    elif last_run and last_run.get("status") == "stopped":
+        items.append({
+            "tone": "warn",
+            "text": "Last run was stopped before it finished.",
+            "action": "Start a run", "page": "Settings",
         })
     elif last_run and last_run.get("status") == "failed":
         items.append({

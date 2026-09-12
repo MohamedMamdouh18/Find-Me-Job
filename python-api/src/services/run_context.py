@@ -4,6 +4,7 @@ import contextvars
 import json
 import logging
 import re
+import threading
 import time
 from typing import Any
 
@@ -63,16 +64,37 @@ def redact_secrets(text: str) -> str:
     return text
 
 
+class PauseRequested(Exception):
+    """Raised from inside a long call when the user asked the run to stop.
+
+    Distinct from a failure: the job that was in flight is still queued, because
+    nothing is written or drained until scoring succeeds. A resume re-scores it.
+    """
+
+
 class RunContext:
     """Carries the run id, session, and progress cursor together, so pipeline
     functions take one argument instead of three."""
 
-    def __init__(self, run_id: int, session: Session):
+    def __init__(
+        self,
+        run_id: int,
+        session: Session,
+        interrupt: threading.Event | None = None,
+    ):
         self.run_id = run_id
         self.session = session
+        # Optional threading.Event. When set, wait() returns early so a pause
+        # request is seen immediately instead of after the full scoring delay.
+        self._interrupt = interrupt
         # Keep the token: APScheduler reuses executor threads, so without a reset the
         # next job on this thread (delete_old_jobs) logs under the finished run's id.
         self._run_id_token = run_id_var.set(run_id)
+
+    @property
+    def interrupt(self) -> threading.Event | None:
+        """The pause event, for long calls that want to abort between attempts."""
+        return self._interrupt
 
     def reset(self):
         """Restores the run_id the thread carried before this context was created."""
@@ -141,7 +163,7 @@ class RunContext:
         """Sets the deadline on the tracker once, then sleeps.
 
         No writes are performed during the wait; endpoints derive seconds_remaining
-        from waiting_until at read time.
+        from waiting_until at read time. An interrupt event cuts the sleep short.
         """
         deadline = now() + timedelta(seconds=seconds)
         curr = get_current_progress()
@@ -157,7 +179,10 @@ class RunContext:
                 )
             )
 
-        time.sleep(seconds)
+        if self._interrupt is not None:
+            self._interrupt.wait(seconds)
+        else:
+            time.sleep(seconds)
 
         # Reset waiting_until once wait is over
         curr = get_current_progress()

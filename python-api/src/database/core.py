@@ -1,4 +1,5 @@
 from datetime import timedelta
+import logging
 import os
 
 from sqlmodel import Session, SQLModel
@@ -15,6 +16,8 @@ from .repositories import (
     SeenJobRepository,
     WorkflowRunRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 DB = os.getenv("DB_PATH") or "/data/db/jobs.db"
 engine = create_engine(
