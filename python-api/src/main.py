@@ -2,7 +2,6 @@ import asyncio
 from contextlib import asynccontextmanager
 import logging
 
-from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 from sqlmodel import Session
 
@@ -17,12 +16,13 @@ from .routes import (
     jobs_router,
     params_router,
     runs_router,
+    settings_router,
     starred_router,
 )
-from .database.models.enums import RunTrigger
-from .services.pipeline import run_pipeline
+from .services import settings_store
 from .services.run_context import RunIdFilter
-from .shared import TIMEZONE, detect_tunnel_url_and_send_notification, scheduler
+from .services.schedule import apply_schedule
+from .shared import detect_tunnel_url_and_send_notification, scheduler
 
 # Configure stdlib logging format and run_id injection
 log_handler = logging.StreamHandler()
@@ -37,21 +37,15 @@ logging.basicConfig(level=logging.INFO, handlers=[log_handler])
 async def lifespan(app: FastAPI):
     # STARTUP
     run_migrations()
+    # Seeded here rather than in a migration: a fresh install never runs migrations
+    # (create_all + stamp head), so a data migration would reach existing installs only.
+    with Session(engine) as session:
+        settings_store.seed_from_env(session)
+        session.commit()
+        settings_store.load_cache(session)
     delete_old_jobs()
-    scheduler.add_job(
-        delete_old_jobs, CronTrigger(hour=0, minute=0, timezone=TIMEZONE)
-    )
-    # Offset from delete_old_jobs: running retention deletion inside a live scrape
-    # would race the pipeline's own writes.
-    scheduler.add_job(
-        run_pipeline,
-        CronTrigger(hour=1, minute=0, timezone=TIMEZONE),
-        args=[RunTrigger.SCHEDULE.value],
-        id="pipeline",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
+    # The jobstore is in-memory, so both jobs are rebuilt from app_settings on every boot.
+    apply_schedule()
     scheduler.start()
 
     # Keep a reference so the task is not garbage collected mid-flight.
@@ -91,3 +85,4 @@ app.include_router(starred_router)
 app.include_router(blocked_router)
 app.include_router(runs_router)
 app.include_router(backup_router)
+app.include_router(settings_router)

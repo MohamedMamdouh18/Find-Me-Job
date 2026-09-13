@@ -95,8 +95,17 @@ The pipeline runs automatically on schedule and can be triggered manually from t
 GENERIC_TIMEZONE=Africa/Cairo
 
 # Days before old job records are purged (default: 60)
-# Cleanup runs on startup and daily at midnight, in GENERIC_TIMEZONE
+# Cleanup runs on startup, and on the schedule set in Settings (default: midnight)
 DELETE_OLD_JOBS_DAYS=60
+
+# Schedule seeds, all optional. These fill the settings table on first boot only —
+# after that the dashboard owns them and editing .env here does nothing.
+# PIPELINE_ENABLED=true          # false leaves the pipeline manual-only
+# PIPELINE_MODE=daily            # daily | interval
+# PIPELINE_AT_TIME=01:00         # daily mode
+# PIPELINE_EVERY_N_HOURS=6       # interval mode; 1, 2, 3, 4, 6, 8 or 12
+# PIPELINE_AT_MINUTE=0           # interval mode, minute past the hour
+# RETENTION_AT_TIME=00:00        # when old records are purged
 
 # Host user id the API/dashboard containers run as; must own ./data (run: id -u)
 APP_UID=1000
@@ -332,7 +341,7 @@ CREATE TABLE workflow_runs (
 
 **User statuses:** `new`, `applied`, `email_sent`, `referral`, `assessment`, `interview`, `offer`, `rejected`, `wont_apply`. The analytics treat `applied`, `email_sent`, and `referral` as the "applied" bucket.
 
-Schema is managed by **Alembic migrations**, applied automatically on each container startup. A brand-new database is created directly from the models and stamped at the current revision, so a fresh clone starts cleanly. `filtered_jobs` is indexed on every column the dashboard filters and sorts by, so page loads stay fast as the table grows. Records older than `DELETE_OLD_JOBS_DAYS` (default **60**) days are automatically purged on startup and daily at midnight.
+Schema is managed by **Alembic migrations**, applied automatically on each container startup. A brand-new database is created directly from the models and stamped at the current revision, so a fresh clone starts cleanly. `filtered_jobs` is indexed on every column the dashboard filters and sorts by, so page loads stay fast as the table grows. Records older than `DELETE_OLD_JOBS_DAYS` (default **60**) days are automatically purged on startup and daily at the time set in Settings (default **00:00**).
 
 **Viewing the database:** The file lives at `./data/db/jobs.db` on your host. Open it directly in [DBeaver](https://dbeaver.io/) - select SQLite, browse to the file, and connect. No server or credentials needed.
 
@@ -453,7 +462,7 @@ The page auto-refreshes every 5 minutes. API responses are cached briefly in the
 
 The API runs on port `8001`. From your host use `http://localhost:8001`.
 
-All endpoints are prefixed with `/api`. On startup, the API automatically runs Alembic migrations and purges old records. Old job cleanup also runs daily at midnight via a background scheduler.
+All endpoints are prefixed with `/api`. On startup, the API automatically runs Alembic migrations and purges old records. Both the pipeline and the cleanup then run on the schedule stored in `app_settings` and edited from the dashboard's Settings → Workflow tab.
 
 **Jobs** (`/api/jobs`):
 
@@ -535,9 +544,40 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 | `GET` | `/api/runs/current` | - | Live progress of the active run, or `null`. Includes `stage`, `detail`, `done`/`total`, `seconds_remaining` during a scoring wait, and the last 5 events |
 | `GET` | `/api/runs/{id}/events` | - | Full event history for one run |
 
+**Settings** (`/api/settings`):
+
+| Method | Endpoint | Params / Body | Description |
+|--------|----------|---------------|-------------|
+| `GET` | `/api/settings/schedule` | - | Current schedule, `next_run_at`, timezone, and any overlap `conflict` |
+| `PUT` | `/api/settings/schedule` | `{"enabled": true, "mode": "interval", "every_n_hours": 3, "at_minute": 30, "at_time": "01:00", "retention_at_time": "00:00"}` | Partial update. Validates, stores, and reschedules live — no restart. 400 on an invalid value or a daily time that collides with retention |
+
+### Scheduling
+
+The pipeline runs daily at **01:00** and retention at **00:00** by default, both editable in
+Settings → Workflow. Two modes: *once a day* at a set time, or *every N hours* where N is a
+divisor of 24 (1, 2, 3, 4, 6, 8, 12) at a set minute past the hour. Intervals are anchored to the
+wall clock, not to container start, so restarting never shifts the run times.
+
+Changes apply immediately — the API reschedules the job in place. A run already in progress is
+not affected; only the next fire moves. Turning the schedule off leaves the pipeline manual-only:
+**Run now** and `POST /api/runs/trigger` keep working.
+
+Settings live in the `app_settings` table, which the dashboard writes. On first boot, any matching
+environment variables seed it; after that the table wins and `.env` is ignored for those keys.
+
+Every interval that divides 24 includes midnight, so retention and the pipeline can always land on
+the same minute. Rather than forbidding that, the two share the pipeline's run lock, and which one
+yields depends on who got there first: retention finding a run in progress logs, skips, and purges
+the next day; a run finding retention in progress waits up to two minutes for it to finish, because
+a skipped run is a whole night of scraping lost with nothing to retry it. A run that does have to
+be dropped is written to `workflow_runs` as failed, so it shows up in Run history rather than only
+in the container log. Missed fires get an hour of
+grace, so a machine that was asleep at the scheduled time runs the job once when it comes back
+rather than waiting a full day.
+
 Run `status` is one of `running`, `success`, `failed`, `paused`, `stopped`. `paused` is terminal
-for that row: the workflow counts as paused while it is the newest run, the 01:00 cron skips while
-it is, and resuming opens a new run instead of reopening it.
+for that row: the workflow counts as paused while it is the newest run, the scheduled run skips
+while it is, and resuming opens a new run instead of reopening it.
 
 `stopped` is terminal too but deliberately not resumable. Pause waits for the job being scored to
 finish and saves it, so the untouched queue is a clean cursor; stop shuts down the socket that

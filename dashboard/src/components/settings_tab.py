@@ -9,6 +9,8 @@ and every action reports back what it did.
 import json
 import os
 import time
+from datetime import datetime
+from datetime import time as clock_time
 from html import escape
 
 import streamlit as st
@@ -26,8 +28,10 @@ from api import (
     get_param,
     get_run_events,
     get_runs,
+    get_schedule,
     pause_run,
     put_param,
+    put_schedule,
     resume_run,
     stop_run,
     trigger_run,
@@ -37,6 +41,7 @@ from constants import BLUE
 from components.styles import empty_state
 from components.ui import (
     format_date,
+    parse_ts,
     human_bytes,
     page_header,
     readout,
@@ -113,6 +118,11 @@ def _cached_runs(limit: int) -> list[dict]:
 
 
 @st.cache_data(ttl=30, show_spinner=False)
+def _cached_schedule() -> dict:
+    return get_schedule()
+
+
+@st.cache_data(ttl=30, show_spinner=False)
 def _cached_cv_info() -> dict:
     return get_cv_info()
 
@@ -140,7 +150,7 @@ def _cached_row_count(matched_only: bool) -> int:
 
 def _invalidate_settings():
     for fn in (_cached_runs, _cached_cv_info, _cached_keywords,
-               _cached_param, _cached_row_count):
+               _cached_param, _cached_row_count, _cached_schedule):
         fn.clear()  # type: ignore[attr-defined]
     library.refresh()
 
@@ -881,6 +891,207 @@ def _render_danger_zone():
             )
 
 
+# ── schedule ────────────────────────────────────────────────────────────────
+
+MODE_LABELS = {"interval": "Every N hours", "daily": "Once a day"}
+
+
+def _avg_run_minutes(runs: list[dict], sample: int = 5) -> tuple[int, int] | None:
+    """Mean wall-clock minutes of the last completed runs, and how many were averaged.
+
+    The count goes in the warning copy: "averaged 47 min" is a claim the user cannot
+    weigh without knowing whether it came from five runs or one.
+    """
+    spans = []
+    for run in runs:
+        started, finished = run.get("started_at"), run.get("finished_at")
+        if not started or not finished:
+            continue
+        try:
+            spans.append(
+                (datetime.fromisoformat(finished) - datetime.fromisoformat(started)).total_seconds()
+            )
+        except (ValueError, TypeError):
+            continue
+        if len(spans) == sample:
+            break
+    if not spans:
+        return None
+    return int(sum(spans) / len(spans) / 60), len(spans)
+
+
+def _time_until(raw: str | None) -> str:
+    """'in 4h 12m'. ui.relative_time is past-only — it reads a future timestamp as
+    clock skew and answers 'just now', which is the wrong half of the clock here."""
+    dt = parse_ts(raw)
+    if not dt:
+        return ""
+    ref = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+    seconds = int((dt - ref).total_seconds())
+    if seconds <= 0:
+        return "due now"
+    if seconds < 3600:
+        return f"in {max(1, seconds // 60)} min"
+    hours, minutes = divmod(seconds // 60, 60)
+    if hours < 24:
+        return f"in {hours}h {minutes:02d}m"
+    return f"in {hours // 24}d {hours % 24}h"
+
+
+def _parse_clock(raw: str, fallback: clock_time) -> clock_time:
+    try:
+        hour, _, minute = str(raw).partition(":")
+        return clock_time(int(hour), int(minute))
+    except (ValueError, TypeError):
+        return fallback
+
+
+def _live_conflict(mode: str, at_time: clock_time, hours: int, minute: int, retention: clock_time) -> str | None:
+    """Mirrors services/schedule.py::conflict_message against the widgets as they
+    stand. state()["conflict"] describes the SAVED config, so on its own it says
+    nothing about the edit in progress."""
+    if mode == "daily":
+        if (at_time.hour, at_time.minute) == (retention.hour, retention.minute):
+            return f"The pipeline and retention would both run at {at_time:%H:%M}."
+        return None
+    if retention.minute == minute and retention.hour % hours == 0:
+        return f"Every {hours}h at :{minute:02d} includes {retention:%H:%M}, when retention runs."
+    return None
+
+
+def _render_schedule():
+    """Deliberately outside the workflow fragment: a fragment reruns every two
+    seconds, which would fight every widget in here while it is being edited."""
+    state = _cached_schedule()
+    if not state:
+        with st.container(border=True):
+            section_head("Schedule", "When the pipeline runs on its own.")
+            st.error("The API is unreachable, so the schedule cannot be read.")
+        return
+
+    allowed = state.get("allowed_interval_hours") or [1, 2, 3, 4, 6, 8, 12]
+    enabled = bool(state.get("enabled"))
+
+    with st.container(border=True):
+        section_head(
+            "Schedule",
+            "When the pipeline runs on its own. Run now always works, schedule or not.",
+        )
+
+        next_at = parse_ts(state.get("next_run_at"))
+        if enabled and next_at:
+            when = f"Next run {next_at:%a %H:%M} · {_time_until(state.get('next_run_at'))}"
+        else:
+            when = "No scheduled runs"
+        st.markdown(
+            readout(
+                "Runs",
+                f'{escape(state.get("description", "—"))} · '
+                + status_dot("good" if enabled else "idle", when),
+                note=f"Times are {state.get('timezone', 'UTC')}, set by GENERIC_TIMEZONE in .env.",
+                tip="Saved here, not in .env. The PIPELINE_* variables only seed this "
+                    "the first time the database is created; after that this page owns them.",
+            ),
+            unsafe_allow_html=True,
+        )
+
+        new_enabled = st.toggle(
+            "Run on a schedule", value=enabled, key="schedule_enabled",
+            help="Off leaves the pipeline manual-only. Run now is unaffected.",
+        )
+
+        mode = state.get("mode", "daily")
+        new_mode = st.radio(
+            "How often", list(MODE_LABELS), index=list(MODE_LABELS).index(mode) if mode in MODE_LABELS else 1,
+            format_func=lambda m: MODE_LABELS[m], horizontal=True,
+            key="schedule_mode", disabled=not new_enabled,
+        )
+
+        left, right = st.columns(2)
+        if new_mode == "interval":
+            with left:
+                hours = st.selectbox(
+                    "Every", allowed,
+                    index=allowed.index(state.get("every_n_hours")) if state.get("every_n_hours") in allowed else 0,
+                    format_func=lambda h: f"{h} hours" if h > 1 else "1 hour",
+                    key="schedule_hours", disabled=not new_enabled,
+                    help="Only divisors of 24, so the gap never changes across midnight.",
+                )
+            with right:
+                minute = st.number_input(
+                    "At minute past the hour", min_value=0, max_value=59,
+                    value=int(state.get("at_minute", 0)), step=5,
+                    key="schedule_minute", disabled=not new_enabled,
+                )
+            payload_times = {"every_n_hours": int(hours), "at_minute": int(minute)}
+            interval_minutes = int(hours) * 60
+        else:
+            with left:
+                at = st.time_input(
+                    "At", value=_parse_clock(state.get("at_time", "01:00"), clock_time(1, 0)),
+                    step=300, key="schedule_at_time", disabled=not new_enabled,
+                )
+            payload_times = {"at_time": f"{at:%H:%M}"}
+            interval_minutes = 24 * 60
+
+        with right if new_mode == "daily" else left:
+            retention_at = st.time_input(
+                "Delete old jobs at", value=_parse_clock(state.get("retention_at_time", "00:00"), clock_time(0, 0)),
+                step=300, key="schedule_retention_time",
+                help="Retention never runs during a scrape — it waits for the next day instead.",
+            )
+
+        # The plan on screen, not the saved one: the saved warning would still be
+        # showing after the user has already moved the time that caused it.
+        conflict = _live_conflict(
+            new_mode,
+            at if new_mode == "daily" else clock_time(0, 0),
+            int(hours) if new_mode == "interval" else 1,
+            int(minute) if new_mode == "interval" else 0,
+            retention_at,
+        )
+        if conflict and new_enabled:
+            st.warning(
+                f"{conflict} Whichever starts first wins: retention skips until tomorrow, "
+                "or the run waits for retention to finish. Nothing overlaps, but one of "
+                "the two is delayed."
+            )
+
+        # A paused newest run holds the schedule, so the next fire will not happen.
+        # Decision 25: the strip owes the user both facts, not just the schedule.
+        last_run = _health().get("last_run") or {}
+        if new_enabled and last_run.get("status") == "paused":
+            st.warning(
+                "The workflow is paused, so scheduled runs are skipped until you resume. "
+                "The next run time below applies once it is resumed."
+            )
+
+        averaged = _avg_run_minutes(_cached_runs(50))
+        if averaged and new_enabled:
+            average, sample = averaged
+            if average > interval_minutes:
+                runs_word = "run" if sample == 1 else "runs"
+                st.info(
+                    f"The last {sample} {runs_word} averaged {average} min, longer than this "
+                    "interval. Overlapping runs are skipped, not queued."
+                )
+
+        if st.button("Save schedule", icon=":material/save:", type="primary", key="schedule_save"):
+            payload = {
+                "enabled": new_enabled,
+                "mode": new_mode,
+                "retention_at_time": f"{retention_at:%H:%M}",
+                **payload_times,
+            }
+            ok, msg = put_schedule(payload)
+            if ok:
+                _flash("success", "Schedule saved. A run already in progress is unaffected.")
+                _invalidate_settings()
+            else:
+                _flash("error", f"Could not save the schedule: {msg}")
+            st.rerun()
+
+
 # ── history ─────────────────────────────────────────────────────────────────
 
 STATUS_GLYPH = {
@@ -1002,6 +1213,7 @@ def render_settings_tab():
         )
         with workflow:
             _render_workflow()
+            _render_schedule()
         with cv:
             _render_cv()
         with searches:

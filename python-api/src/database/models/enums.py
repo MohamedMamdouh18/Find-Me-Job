@@ -27,6 +27,20 @@ class RunTrigger(str, enum.Enum):
     RESUME = "resume"
 
 
+class PipelineMode(str, enum.Enum):
+    # INTERVAL compiles to hour="*/N", anchored to the wall clock; DAILY to one
+    # hour/minute. The user picks a preset, never a cron expression.
+    INTERVAL = "interval"
+    DAILY = "daily"
+
+
+class LockHolder(str, enum.Enum):
+    # Who holds the pipeline run lock. The distinction is load-bearing: a run
+    # waits for RETENTION but skips past another PIPELINE run.
+    PIPELINE = "pipeline"
+    RETENTION = "retention"
+
+
 class UserStatus(str, enum.Enum):
     NEW = "new"
     APPLIED = "applied"

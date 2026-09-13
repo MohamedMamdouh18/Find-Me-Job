@@ -10,6 +10,14 @@ services:
     environment:
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
       - DELETE_OLD_JOBS_DAYS=${DELETE_OLD_JOBS_DAYS}
+      # Schedule seeds. Once the dashboard writes app_settings, the table wins
+      # and these are ignored — they only fill an empty row on first boot.
+      - PIPELINE_ENABLED=${PIPELINE_ENABLED:-}
+      - PIPELINE_MODE=${PIPELINE_MODE:-}
+      - PIPELINE_EVERY_N_HOURS=${PIPELINE_EVERY_N_HOURS:-}
+      - PIPELINE_AT_MINUTE=${PIPELINE_AT_MINUTE:-}
+      - PIPELINE_AT_TIME=${PIPELINE_AT_TIME:-}
+      - RETENTION_AT_TIME=${RETENTION_AT_TIME:-}
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_URL=${LLM_URL}
       - LLM_MODEL=${LLM_MODEL}

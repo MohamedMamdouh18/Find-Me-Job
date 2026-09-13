@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from sqlmodel import Session
 
 from . import settings
@@ -16,7 +17,7 @@ from .run_context import (
 from .scoring import score_job
 from ..database.core import engine
 from ..database.models import FilteredJob
-from ..database.models.enums import AiStatus, RunStatus, RunTrigger, UserStatus
+from ..database.models.enums import AiStatus, LockHolder, RunStatus, RunTrigger, UserStatus
 from ..database.repositories import (
     FilteredJobRepository,
     PendingJobRepository,
@@ -29,6 +30,21 @@ from ..shared import send_telegram
 logger = logging.getLogger(__name__)
 _run_lock = threading.Lock()
 
+# Who holds _run_lock. Read without holding it, so it can be momentarily None
+# while a holder is mid-handover: release_run_lock() clears it before releasing,
+# and a run sets it only after acquiring. A failed acquire already proves the
+# lock is held, so None there means in-transition, never held-by-a-run — which
+# is why the checks below treat None as "worth waiting for" rather than "skip".
+_lock_holder: LockHolder | None = None
+
+# How long a run waits for retention to let go. Retention is a handful of DELETEs;
+# longer than this means something is wrong, and waiting forever would stack runs
+# up behind max_instances=1.
+RETENTION_WAIT_SECONDS = 120
+
+# The one skip that is normal and needs no record: max_instances=1 working.
+SKIP_RUN_IN_PROGRESS = "a run is already in progress"
+
 # Pause is cooperative: the route sets this event, the scoring loop notices it between
 # jobs, and ctx.wait() returns early so the signal is not sat on for a whole delay.
 # A plain Event is enough because the pipeline runs on an APScheduler thread in this
@@ -40,6 +56,55 @@ _pause_event = threading.Event()
 # for it, and it ends the run in a state resume refuses. Setting _pause_event too
 # means every place that already watches for an interrupt needs no second check.
 _stop_event = threading.Event()
+
+
+def try_acquire_lock_for_retention() -> bool:
+    """Non-blocking claim on the run lock, for jobs that must not overlap a run.
+
+    Used by retention, which would otherwise delete rows mid-scrape whenever the
+    user schedules the pipeline across retention's hour.
+    """
+    global _lock_holder
+    if not _run_lock.acquire(blocking=False):
+        return False
+    _lock_holder = LockHolder.RETENTION
+    return True
+
+
+def release_run_lock() -> None:
+    global _lock_holder
+    _lock_holder = None
+    _run_lock.release()
+
+
+def _acquire_for_pipeline() -> tuple[bool, str]:
+    """Claim the lock for a run. Returns (acquired, reason it was not).
+
+    Another *run* holding it means skip — that is the documented rule and what
+    max_instances=1 expects. *Retention* holding it is a different case: it is
+    seconds of DELETEs, and skipping there would drop a whole scheduled run with
+    no workflow_runs row, which neither coalesce nor misfire_grace_time can
+    recover because the fire was consumed, not missed. Every interval that
+    divides 24 includes midnight, where retention sits by default, so waiting is
+    the common path rather than an edge case.
+    """
+    global _lock_holder
+    if _run_lock.acquire(blocking=False):
+        _lock_holder = LockHolder.PIPELINE
+        return True, ""
+    if _lock_holder not in (None, LockHolder.RETENTION):
+        return False, SKIP_RUN_IN_PROGRESS
+
+    deadline = time.monotonic() + RETENTION_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        if _run_lock.acquire(timeout=0.5):
+            _lock_holder = LockHolder.PIPELINE
+            return True, ""
+        # A run took the lock first: skip, as the rule says. None stays in the
+        # loop — that is a handover in flight, not a run holding the lock.
+        if _lock_holder not in (None, LockHolder.RETENTION):
+            return False, SKIP_RUN_IN_PROGRESS
+    return False, f"retention still running after {RETENTION_WAIT_SECONDS}s"
 
 
 def request_pause() -> None:
@@ -75,10 +140,31 @@ def _emit_interrupted(ctx: RunContext, run_id: int, done: int, total: int) -> No
     )
 
 
+def _record_dropped_run(trigger: str, reason: str) -> None:
+    """Write a failed row for a fire the scheduler already consumed.
+
+    coalesce and misfire_grace_time cannot retry a consumed fire, so without a row
+    a lost night shows up nowhere the dashboard can see. A second trigger during a
+    run is not recorded — that one is the documented, harmless case.
+    """
+    try:
+        with Session(engine) as session:
+            repo = WorkflowRunRepository(session)
+            run = repo.start(trigger=trigger)
+            session.flush()
+            repo.finish(run.id, RunStatus.FAILED.value, error=f"Run dropped: {reason}")
+            session.commit()
+    except Exception:
+        logger.exception("Could not record the dropped run")
+
+
 def run_pipeline(trigger: str = RunTrigger.SCHEDULE.value) -> None:
     """Orchestrates a complete job search, scrape, score, email, and notify cycle."""
-    if not _run_lock.acquire(blocking=False):
-        logger.warning("Pipeline run already in progress, skipping")
+    acquired, reason = _acquire_for_pipeline()
+    if not acquired:
+        logger.warning("Pipeline run skipped: %s", reason)
+        if reason != SKIP_RUN_IN_PROGRESS:
+            _record_dropped_run(trigger, reason)
         return
 
     try:
@@ -335,4 +421,4 @@ def run_pipeline(trigger: str = RunTrigger.SCHEDULE.value) -> None:
                 _stop_event.clear()
 
     finally:
-        _run_lock.release()
+        release_run_lock()

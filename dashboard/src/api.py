@@ -471,6 +471,30 @@ def get_cv_info() -> dict:
         return {"exists": False}
 
 
+def get_schedule() -> dict:
+    """Current schedule plus the API's own next-run time — never computed here."""
+    try:
+        return _session.get(f"{API}/settings/schedule", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch the schedule")
+        return {}
+
+
+def put_schedule(payload: dict) -> tuple[bool, str]:
+    """Partial update: send only what changed. The API validates and reschedules live."""
+    try:
+        res = _session.put(f"{API}/settings/schedule", json=payload, timeout=TIMEOUT)
+        if res.status_code == 200:
+            return True, ""
+        try:
+            return False, str(res.json().get("detail", res.text))
+        except ValueError:
+            return False, res.text
+    except requests.RequestException as e:
+        logger.exception("Failed to save the schedule")
+        return False, str(e)
+
+
 def get_runs(limit: int = 20) -> list[dict]:
     try:
         return _session.get(f"{API}/runs", params={"limit": limit}, timeout=TIMEOUT).json()

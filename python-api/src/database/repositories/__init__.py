@@ -7,6 +7,7 @@ from .starred_companies import StarredCompanyRepository
 from .blocked_companies import BlockedCompanyRepository
 from .workflow_runs import WorkflowRunRepository
 from .run_events import RunEventRepository
+from .app_settings import AppSettingRepository
 
 __all__ = [
     "CVKeywordsRepository",
@@ -18,4 +19,5 @@ __all__ = [
     "BlockedCompanyRepository",
     "WorkflowRunRepository",
     "RunEventRepository",
+    "AppSettingRepository",
 ]
