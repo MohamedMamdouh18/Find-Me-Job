@@ -1,4 +1,3 @@
-import html
 import logging
 import re
 
@@ -9,33 +8,14 @@ from ..services.run_context import RunContext
 
 logger = logging.getLogger(__name__)
 
-TITLE_BONUS = 10
-SKILL_POINTS = 3
-MIN_SCORE = 6
+# One definition, in base.py, because every feed is now judged by the same arithmetic.
+# Re-exported here so existing callers and tests keep importing them from this module.
+from .base import MIN_SCORE, SKILL_POINTS, TITLE_BONUS, word_pattern  # noqa: E402,F401
 
 
-def word_pattern(term: str) -> re.Pattern:
-    """Builds a case-insensitive regex pattern delimited by whitespace, punctuation, or string boundary."""
-    escaped = re.escape(term)
-    return re.compile(
-        r"(?:^|[\s,;/()\[\]|•·–—-])" + escaped + r"(?:$|[\s,;/()\[\]|•·–—-])",
-        re.IGNORECASE,
-    )
-
-
-def clean_description(text: str) -> str:
-    """Strips tags, unescapes entities, removes spam cues, and collapses whitespace."""
-    if not text:
-        return ""
-    # Strip tags before unescaping: unescaping first turns escaped markup such as
-    # "&lt;div&gt;" into a real tag, which the tag strip then deletes along with any
-    # text up to the next ">".
-    text = re.sub(r"<[^>]*>", " ", text)
-    text = html.unescape(text)
-    text = text.replace("\xc2", "").replace("Â", "")
-    text = re.split(r"please mention the word", text, flags=re.IGNORECASE)[0]
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+# Re-exported so existing callers and tests keep importing it from here; the helper
+# itself lives in base.py now, because Greenhouse needs the opposite ordering.
+from .base import clean_description  # noqa: E402,F401
 
 
 def filter_and_score_remoteok_jobs(

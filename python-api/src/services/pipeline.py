@@ -21,10 +21,13 @@ from ..database.models.enums import AiStatus, LockHolder, RunStatus, RunTrigger,
 from ..database.repositories import (
     FilteredJobRepository,
     PendingJobRepository,
+    SeenJobRepository,
     SourceRepository,
     WorkflowRunRepository,
 )
-from ..scrapers import SOURCES
+from ..scrapers import COMPANIES, FILTERED_SOURCES, SOURCES
+from ..scrapers.base import prefilter
+from .identity import fingerprint as job_fingerprint
 from .. import shared
 from .notifications import notify
 
@@ -159,6 +162,56 @@ def _record_dropped_run(trigger: str, reason: str) -> None:
         logger.exception("Could not record the dropped run")
 
 
+def _unseen(session, jobs: list) -> list:
+    """The jobs from this batch that are not already on record.
+
+    Runs before the cap, not after. A source hands back much the same list every night, so
+    capping first spends the whole budget on jobs that will be recognised and dropped a
+    moment later — and a posting that appeared today, sitting below the cut, never enters
+    the queue at all, while the run still reports a healthy "kept 80".
+    """
+    if not jobs:
+        return jobs
+    prints = [job_fingerprint(job.company, job.title, job.location) for job in jobs]
+    known_ids, known_prints = SeenJobRepository(session).known([job.id for job in jobs], prints)
+    return [
+        job
+        for job, print_ in zip(jobs, prints)
+        if job.id not in known_ids and print_ not in known_prints
+    ]
+
+
+def _gate(source_name: str, jobs: list, keywords: dict, remaining: int) -> tuple[list, dict]:
+    """What a source is allowed to queue this run, best first.
+
+    Two limits and one filter. A feed carries the whole world, so it is filtered against
+    the CV keywords; a company row is not, because the user named that employer and a
+    sideways role their keywords miss is exactly the job they want. Both then meet the
+    per-source ceiling and whatever is left of the run budget — which is what stops one
+    feed with six figures of jobs behind it from being the only source a run reaches.
+
+    Returns the jobs to save and how many were dropped, so the run can report both: a
+    filter set too tight and a dead source look identical without those two numbers.
+    """
+    kept = prefilter(jobs, keywords) if source_name in FILTERED_SOURCES else list(jobs)
+    ceiling = min(settings.get_intake_max_per_source(), max(remaining, 0))
+    allowed = kept[:ceiling]
+    # Two different facts, reported separately: jobs the filter judged irrelevant, and
+    # jobs there was no room for tonight. One number cannot tell a filter set too tight
+    # from a budget set too low, which is the whole reason these counts exist.
+    return allowed, {"filtered": len(jobs) - len(kept), "capped": len(kept) - len(allowed)}
+
+
+def _walk_order(sources: dict) -> list:
+    """Companies first, then feeds.
+
+    Duplicates are resolved first-wins, so the order is what decides which copy of a role
+    survives: the board's original, with the full description and the real application
+    form, rather than a feed's syndication of it.
+    """
+    return sorted(sources.items(), key=lambda pair: pair[0] != COMPANIES)
+
+
 def _enabled_sources(session, ctx) -> dict:
     """The registry minus what the user switched off.
 
@@ -234,15 +287,45 @@ def run_pipeline(trigger: str = RunTrigger.SCHEDULE.value) -> None:
                     # Inside the branch, not above it: a resume that is not scraping
                     # has nothing to say about which sources are switched off.
                     sources = _enabled_sources(session, ctx)
-                for source_name, fetch_fn in sources.items():
+                # No keywords means prefilter scores everything zero and every feed job is
+                # dropped as irrelevant. That is indistinguishable from six dead feeds unless
+                # the run says so out loud.
+                if not paused and not (keywords.get("titles") or keywords.get("skills")):
+                    ctx.emit(
+                        "keywords.empty",
+                        "No titles or skills came out of the CV, so every job from a feed "
+                        "will be dropped as irrelevant. Companies and LinkedIn are unaffected.",
+                        level="warning",
+                    )
+
+                budget = settings.get_intake_max_per_run()
+                for source_name, fetch_fn in _walk_order(sources):
                     # Between sources, so a stop does not sit through every scraper.
                     if _pause_event.is_set():
                         paused = True
                         break
                     try:
                         jobs = fetch_fn(ctx, keywords)
+                        offered = len(jobs)
+                        # Order is load-bearing: the cap truncates, so whatever sits at the
+                        # front is what gets queued. Sources hand back newest-first, and
+                        # prefilter's sort is stable, so recency survives the relevance
+                        # ranking among jobs that score the same.
+                        jobs = _unseen(session, jobs)
+                        allowed, dropped = _gate(
+                            source_name, jobs, keywords, budget - total_queued
+                        )
+                        dropped["already_seen"] = offered - len(jobs)
+                        ctx.emit(
+                            f"scrape.{source_name}.gate",
+                            f"{source_name}: offered {offered}, kept {len(allowed)}, "
+                            f"dropped {dropped['already_seen']} already seen, "
+                            f"{dropped['filtered']} as irrelevant and "
+                            f"{dropped['capped']} over the cap",
+                            context={"offered": offered, "kept": len(allowed), **dropped},
+                        )
                         queued_count = sum(
-                            1 for j in jobs if save_pending_job(session, j) == "queued"
+                            1 for j in allowed if save_pending_job(session, j) == "queued"
                         )
                         total_queued += queued_count
                         ctx.emit(

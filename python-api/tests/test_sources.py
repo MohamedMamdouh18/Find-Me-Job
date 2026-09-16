@@ -78,11 +78,15 @@ def harness(monkeypatch):
 
 
 def test_every_registered_source_is_listed_and_enabled_by_default(client):
+    """Asserts the property, not the census: a phase that adds a feed should not have to
+    edit this test, but a source that arrives switched off or unlabelled should fail it."""
+    from src.scrapers import SOURCES, SOURCE_LABELS
+
     body = client.get("/api/sources").json()
 
-    assert {row["name"] for row in body} == {"linkedin", "remoteok"}
+    assert {row["name"] for row in body} == set(SOURCES)
     assert all(row["enabled"] for row in body)
-    assert {row["label"] for row in body} == {"LinkedIn", "RemoteOK"}
+    assert all(row["label"] == SOURCE_LABELS[row["name"]] for row in body)
 
 
 def test_toggling_a_source_persists(client):
@@ -90,7 +94,8 @@ def test_toggling_a_source_persists(client):
     assert res.status_code == 200
 
     listed = {row["name"]: row["enabled"] for row in client.get("/api/sources").json()}
-    assert listed == {"linkedin": False, "remoteok": True}
+    assert listed["linkedin"] is False
+    assert all(enabled for name, enabled in listed.items() if name != "linkedin")
 
     with Session(client.engine) as session:
         assert session.get(JobSource, "linkedin").enabled is False
@@ -113,6 +118,13 @@ def test_a_disabled_source_does_not_run(harness, monkeypatch):
         return [_job("b")]
 
     monkeypatch.setattr(pipeline_module, "SOURCES", {"linkedin": linkedin, "remoteok": remoteok})
+    # remoteok is a filtered source, so give the run keywords its jobs can match —
+    # otherwise the gate drops them and the assertion below reads as a disabled source.
+    monkeypatch.setattr(
+        pipeline_module,
+        "extract_or_get_keywords",
+        lambda ctx: ("cv text", {"titles": ["Engineer"], "skills": ["python", "engineer"]}),
+    )
     with Session(engine) as session:
         repo = SourceRepository(session)
         repo.reconcile({"linkedin": "LinkedIn", "remoteok": "RemoteOK"})

@@ -203,6 +203,8 @@ def render_job_detail(job: dict, starred_names, blocked_names, on_change):
         st.selectbox(
             "Application status",
             USER_STATUSES,
+            help="Where you are with this job. You set this — the AI never changes it. "
+                 "Moving it is what fills the funnel and the activity calendar on Analytics.",
             key=status_key,
             label_visibility="collapsed",
             format_func=lambda s: USER_STATUS_LABELS.get(s, s),
@@ -350,7 +352,9 @@ def _render_delete(job_id: str, on_change):
         del_col, _ = st.columns([3, 2])
         with del_col:
             if st.button(
-                "Delete job", key=f"del_{job_id}", width="stretch", icon=":material/delete:"
+                "Delete job", key=f"del_{job_id}", width="stretch", icon=":material/delete:",
+                help="Removes it from your list for good. The posting stays remembered, so no "
+                     "source will add it again.",
             ):
                 st.session_state[confirm_key] = True
                 st.rerun()

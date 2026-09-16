@@ -20,6 +20,22 @@ ALLOWED_INTERVAL_HOURS = (1, 2, 3, 4, 6, 8, 12)
 # the two together instead.
 PIPELINE_MODES = ("interval", "daily")
 
+# We Work Remotely publishes one feed per category, and they are not a subset of the
+# all-jobs feed: the categories together carry roughly three times as many postings.
+# Picking a few means fewer jobs discarded by the keyword filter and better use of the
+# intake cap. Empty means the all-jobs feed, which is one request instead of several.
+WWR_CATEGORY_SLUGS = (
+    "remote-programming-jobs",
+    "remote-devops-sysadmin-jobs",
+    "remote-design-jobs",
+    "remote-product-jobs",
+    "remote-customer-support-jobs",
+    "remote-copywriting-jobs",
+    "remote-sales-and-marketing-jobs",
+    "remote-management-and-finance-jobs",
+    "all-other-remote-jobs",
+)
+
 
 def _parse_bool(raw: str) -> bool:
     value = raw.strip().lower()
@@ -82,6 +98,25 @@ def _parse_retention_days(raw: str) -> int:
     if days < 1:
         raise ValueError(f"retention must be at least 1 day, got {days}")
     return days
+
+
+def _parse_intake_cap(raw: str) -> int:
+    count = int(raw)
+    if not 1 <= count <= 10000:
+        raise ValueError(f"intake cap must be 1-10000 jobs, got {count}")
+    return count
+
+
+def _parse_wwr_categories(raw: str) -> list[str]:
+    """Comma-separated slugs, or blank for the all-jobs feed."""
+    slugs = [slug.strip() for slug in (raw or "").split(",") if slug.strip()]
+    unknown = [slug for slug in slugs if slug not in WWR_CATEGORY_SLUGS]
+    if unknown:
+        raise ValueError(f"unknown We Work Remotely categories: {', '.join(unknown)}")
+    # Each category is another request against a site that challenges rapid ones.
+    if len(slugs) > 5:
+        raise ValueError("pick at most 5 categories; each one is a separate request")
+    return slugs
 
 
 def _parse_port(raw: str) -> int:
@@ -154,6 +189,12 @@ SETTINGS: dict[str, Setting] = {
     # The webhook URL is the whole credential: anyone holding it can post to the
     # channel, so it is masked like a token and redacted out of run events.
     "DISCORD_WEBHOOK_URL": Setting("", _parse_optional_url, secret=True),
+    # The run budget is the knob that maps to wall-clock: 200 jobs at the default 20s
+    # delay is a bit over an hour. The per-source ceiling under it stops one feed with
+    # six figures of jobs from eating the whole budget before another source is walked.
+    "INTAKE_MAX_PER_RUN": Setting("200", _parse_intake_cap),
+    "INTAKE_MAX_PER_SOURCE": Setting("80", _parse_intake_cap),
+    "WWR_CATEGORIES": Setting("", _parse_wwr_categories),
 }
 
 # The six keys the typed schedule endpoint owns. It validates the combination,
@@ -274,3 +315,15 @@ def get_telegram_token() -> str:
 
 def get_discord_webhook_url() -> str:
     return get_setting("DISCORD_WEBHOOK_URL")
+
+
+def get_intake_max_per_run() -> int:
+    return get_setting("INTAKE_MAX_PER_RUN")
+
+
+def get_intake_max_per_source() -> int:
+    return get_setting("INTAKE_MAX_PER_SOURCE")
+
+
+def get_wwr_categories() -> list[str]:
+    return get_setting("WWR_CATEGORIES")

@@ -1,6 +1,7 @@
 from sqlmodel import Session, select
 
 from ..models.blocked_company import BlockedCompany
+from ...services.identity import normalise_company
 
 
 class BlockedCompanyRepository:
@@ -24,9 +25,19 @@ class BlockedCompanyRepository:
         ).first()
 
     def is_blocked(self, company_name: str) -> bool:
+        """Matched on the normalised name, so blocking "Acme" also blocks "Acme, Inc.".
+
+        Exact matching let the same employer keep arriving nightly under a slightly
+        different spelling, which made the one loop the user relies on look broken.
+        """
         if not company_name:
             return False
-        return self.find_by_name(company_name.lower().strip()) is not None
+        if self.find_by_name(company_name.lower().strip()) is not None:
+            return True
+        wanted = normalise_company(company_name)
+        if not wanted:
+            return False
+        return any(normalise_company(row.company_name) == wanted for row in self.get_all())
 
     def add(self, company_name: str, reason: str | None = None) -> BlockedCompany:
         entry = BlockedCompany(company_name=company_name.lower().strip(), reason=reason or None)

@@ -1,6 +1,6 @@
 # Find Me a Job - AI-Powered Job Scraper & Matcher
 
-An automated job scraping and AI matching pipeline that runs on a schedule, scrapes jobs from **LinkedIn** and **RemoteOK**, prevents fetching the same job twice, scores each one against your CV using an LLM, generates a cover letter for good matches, stores matched jobs in a **local SQLite database**, and serves them through a **Streamlit dashboard** with analytics, filtering, and job management. A **Cloudflare Quick Tunnel** exposes the dashboard publicly, and **Telegram notifications** send you the access URL on startup plus a summary after each run. Everything runs locally in Docker.
+An automated job scraping and AI matching pipeline that runs on a schedule, scrapes jobs from **LinkedIn**, **RemoteOK**, **Himalayas**, **We Work Remotely** and the **careers pages of companies you choose**, prevents fetching the same job twice — including the same role arriving from two different sources — scores each one against your CV using an LLM, generates a cover letter for good matches, stores matched jobs in a **local SQLite database**, and serves them through a **Streamlit dashboard** with analytics, filtering, and job management. A **Cloudflare Quick Tunnel** exposes the dashboard publicly, and **Telegram notifications** send you the access URL on startup plus a summary after each run. Everything runs locally in Docker.
 
 ---
 
@@ -12,6 +12,7 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
   - [Environment Variables](#environment-variables-env)
   - [LinkedIn Search Config](#linkedin-search-config)
   - [LLM Keywords Config](#llm-keywords-config)
+- [What reaches the scorer](#what-reaches-the-scorer)
 - [AI Scoring Logic](#ai-scoring-logic)
 - [Choosing an LLM Provider](#choosing-an-llm-provider)
 - [Database Schema](#database-schema)
@@ -28,19 +29,21 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 
 ## Features
 
-- **Dual source scraping** - LinkedIn (with filters) and RemoteOK
+- **Six sources** - LinkedIn (with filters), RemoteOK, Himalayas, We Work Remotely, and the careers pages of companies you add; each switchable from Settings
+- **Company boards** - paste a company's careers URL and the app works out what is behind it. Greenhouse, Lever and Ashby boards are read through their own APIs, so you get the original description and the real application form, usually before the posting reaches a job site
 - **Multiple LinkedIn searches** - define multiple search queries (different keywords, locations, filters) in a single config file; all are executed in one run
-- **Deduplication** - jobs already seen or pending are skipped automatically across runs
+- **Deduplication** - jobs already seen or pending are skipped across runs, and the same role arriving from two different sources is recognised as one job rather than two
+- **Intake limits** - the big feeds offer far more jobs than are worth scoring, so a run takes a set number and no more; feed jobs are keyword-checked against your CV for free before any of them costs an AI call
 - **AI scoring** - scores each job 0–100 based on your CV, required skills, and years of experience; small experience gaps (1–2 years) are penalized lightly, 3+ years below means score 0
 - **Cover letter generation** - only generated for jobs scoring above `FILTERING_SCORE` (default 60), saving tokens
 - **Streamlit dashboard** at `localhost:8501` with analytics (stat cards, charts, a year-long activity heatmap), a scannable job list with a detail panel, quick-filter views, bulk actions, a combined starred/blocked companies list, and manual job entry
 - **Auto email application** - when a job listing includes an email address, the pipeline sends a personalized application email with your CV attached and marks the job as `email_sent`
 - **Cloudflare Quick Tunnel** - auto-creates a public `trycloudflare.com` URL for the dashboard, no account needed
 - **Telegram notifications** - sends the dashboard URL on startup and a summary after each pipeline run
-- **LLM-powered keyword extraction** - extracts job titles and skills from your CV to filter RemoteOK results; cached and only re-extracted when the CV changes
+- **LLM-powered keyword extraction** - extracts job titles and skills from your CV to filter the feeds; cached and only re-extracted when the CV changes
 - **Flexible LLM provider** - any OpenAI-compatible API (Groq, Google AI Studio, OpenRouter, local models, etc.)
 - **Company blocklist** - block a company and its jobs are dropped before they ever reach the LLM, so they cost nothing
-- **Starred companies** - keep a watchlist with careers URLs and notes; starred jobs are flagged with ★ and get their own view
+- **Starred companies** - keep a watchlist with careers URLs and notes; starred jobs are flagged with ★ and get their own view. Starring and scraping are separate: you can follow a company's board without endorsing it, and star a company you cannot scrape
 - **Settings tab** - configure the LLM provider, cutoff, email and notifications, toggle sources, upload your CV, edit search config, trigger a run, export your data, and download a database backup without leaving the dashboard
 - **Run history** - every pipeline run is recorded with counts and errors, so a silent failure is visible
 - **Persistent storage** - SQLite with Alembic migrations applied on startup; old records purged automatically
@@ -131,6 +134,11 @@ DASHBOARD_PORT=8501
 # SCORING_DELAY_SECONDS=20
 # DELETE_OLD_JOBS_DAYS=60
 #
+# Intake limits. How many jobs a run may queue in total, and how many any one source
+# may contribute. 200 jobs at a 20s delay is roughly 67 minutes of scoring.
+# INTAKE_MAX_PER_RUN=200
+# INTAKE_MAX_PER_SOURCE=80
+#
 # Schedule.
 # PIPELINE_ENABLED=true
 # PIPELINE_MODE=daily            # daily | interval
@@ -208,7 +216,40 @@ Edit `params/llm_keywords_extract.txt` - a prompt template sent to the LLM along
 - **`titles`** - 3–5 realistic job titles based on your experience level
 - **`skills`** - 10–20 technical skills from your CV
 
-These keywords filter RemoteOK results so only matching jobs enter the pipeline. Results are cached and only re-extracted when your CV changes.
+These keywords filter the broad feeds — RemoteOK, Himalayas, We Work Remotely — so only matching
+jobs enter the pipeline, and rejecting one costs nothing because the check is arithmetic rather
+than an LLM call. Jobs from a company you added and from your own LinkedIn searches are not
+filtered this way: you named those yourself. Results are cached and only re-extracted when your
+CV changes.
+
+---
+
+## What reaches the scorer
+
+The sources between them offer far more jobs than are worth scoring — one feed alone
+carries over a hundred thousand — and every job that gets through costs one LLM call and
+one `SCORING_DELAY_SECONDS` wait. So a run does not queue everything it finds:
+
+1. **Companies are fetched first**, then the feeds. Order matters because a duplicate is
+   resolved first-wins: when the same role exists on a company's board and in a feed, the
+   copy that survives is the board's — the original description and the real application
+   form, rather than a syndicated summary and a redirect.
+2. **Feed jobs are keyword-checked** against the titles and skills extracted from your CV.
+   This is arithmetic, not an LLM call, so rejecting a job here costs nothing. Jobs from a
+   company you added and from your own LinkedIn searches skip this check: in both cases you
+   already said what you wanted, and a sideways role your keywords miss is often the point.
+3. **Two limits apply.** `INTAKE_MAX_PER_SOURCE` (default 80) stops one feed filling the
+   run before the others are reached; `INTAKE_MAX_PER_RUN` (default 200) is the ceiling for
+   the whole run. Both are edited in Settings → Workflow, which shows what they cost in
+   minutes.
+4. **The same role from two sources is queued once**, matched on a fingerprint of the
+   normalised company, title and location — so "Acme, Inc." and "ACME" are one employer.
+   The blocklist uses the same normalisation, which is why blocking *Acme* also blocks
+   *Acme, Inc.*
+
+Each source reports what it offered, what was kept, and what was dropped — split into
+*irrelevant* and *over the cap* — in the run history. A filter set too tight and a dead
+source look identical without those numbers.
 
 ---
 
@@ -271,8 +312,13 @@ The workflow works with **any OpenAI-compatible API**. Configure your provider f
 ```sql
 -- Jobs fully processed in previous runs (long-term deduplication)
 CREATE TABLE seen_jobs (
-  id       TEXT PRIMARY KEY,    -- "linkedin_4384934676" or "remoteok_1130786"
-  seen_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  id           TEXT PRIMARY KEY,  -- "linkedin_4384934676", "greenhouse_stripe_12345"
+  seen_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  -- sha256 of normalised company::title::location, so the same role syndicated by a
+  -- second source is recognised as one job. Null for rows written before this column
+  -- existed and no longer present in filtered_jobs or pending_jobs — there is nothing
+  -- left to compute one from. A null never matches, so those rows dedupe on id alone.
+  fingerprint  TEXT               -- indexed
 );
 
 -- Jobs discovered this run, waiting to be scored by the LLM
@@ -283,7 +329,7 @@ CREATE TABLE pending_jobs (
   location    TEXT,
   applylink   TEXT,
   description TEXT,
-  website     TEXT,             -- "linkedin" or "remoteok"
+  website     TEXT,             -- "linkedin", "remoteok", "Himalayas", "Greenhouse"…
   easy_apply  BOOLEAN DEFAULT FALSE,
   created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -315,12 +361,32 @@ CREATE TABLE job_status_history (
 );
 
 -- Companies you starred in the dashboard (names stored lowercase)
+-- The company list. The table name is historical: rows are no longer only starred ones,
+-- because "I want to work here" and "scrape this every run" are two separate facts.
 CREATE TABLE starred_companies (
-  id           INTEGER PRIMARY KEY,
-  company_name TEXT NOT NULL UNIQUE,
-  careers_url  TEXT,
-  notes        TEXT,
-  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+  id                INTEGER PRIMARY KEY,
+  company_name      TEXT NOT NULL UNIQUE,
+  careers_url       TEXT,
+  notes             TEXT,
+  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  starred           BOOLEAN NOT NULL DEFAULT TRUE,   -- I want to work here
+  in_workflow       BOOLEAN NOT NULL DEFAULT FALSE,  -- fetch this company every run
+  fetch_method      TEXT NOT NULL DEFAULT 'unknown', -- unknown | ats | page | unreadable
+  fetch_note        TEXT,                            -- why, when unreadable
+  ats               TEXT,                            -- greenhouse | lever | ashby
+  ats_token         TEXT,                            -- board token from the careers URL
+  last_scraped_at   DATETIME,
+  last_job_count    INTEGER,
+  consecutive_empty INTEGER NOT NULL DEFAULT 0       -- two in a row switches the row off
+);
+
+-- One row per scraper, so a source can be turned off from the dashboard. Reconciled
+-- from the scraper registry at startup; a source with no row here counts as enabled.
+CREATE TABLE sources (
+  name       TEXT PRIMARY KEY,   -- companies | linkedin | remoteok | himalayas | weworkremotely
+  label      TEXT NOT NULL,
+  enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at DATETIME
 );
 
 -- CV hash and extracted keyword cache
@@ -417,7 +483,7 @@ no password.
 
 - **Analytics** — six KPI tiles, then **Needs attention**: real conditions with somewhere to go (*"the workflow is inactive and 53 jobs are waiting"*, *"5 strong matches you have not opened"*), each of which hides itself once it stops being true. Then the full chart set — match rate, score distribution with your cutoff and median drawn on it, conversion funnel, status breakdown, applications by source, companies by best score, and a 365-day activity calendar
 - **Jobs** — a scannable list. Six view chips (**All**, **Matched**, **Strong**, **New**, **⚡ Easy Apply**, **★ Starred**) with live counts, a search box, a sort control, and a **Filters** popover holding a score range, application status, AI verdict, source, location and company
-- **Companies** — one compact table covering both lists, with **jobs seen**, **best score** and **last seen** pulled from your jobs table
+- **Companies** — one compact table covering both lists, with **jobs seen**, **best score** and **last seen** pulled from your jobs table, and — for a starred company with a careers URL — what we can read from that page and the two controls for fetching it
 - **Settings** — a control room: run the workflow, replace the CV, edit searches, export, and read run history
 
 Working with jobs:
@@ -435,6 +501,10 @@ Working with jobs:
 Working with companies:
 
 - **The effect is stated on the page.** Starring marks a company and gives it its own view; it does **not** change scoring. Blocking drops new postings before the scorer sees them, so they never cost an LLM call — jobs already in your list stay
+- **Fetching a company's jobs.** Add a careers URL and the app checks what is behind it in the background, then says so on the row: a *Greenhouse / Lever / Ashby board detected* (one request, full descriptions, the real application form), *reading the page directly* (no board, but the page publishes structured job data), or *we cannot read jobs from this page* with the reason — usually listings rendered in the browser, or a `robots.txt` that asks us not to. An expander on the page explains all of this without a hover
+- **Two independent controls.** **In workflow** fetches that company on every run and is unavailable while a page cannot be read, because turning it on would add nothing but a silent zero to every run. **Scrape now** fetches that one company immediately whatever the switch says, which is how you try a careers URL before committing it to every night. Neither needs the other, and neither is the same as starring
+- **A company that goes quiet turns itself off.** Two empty fetches in a row and the row moves to *cannot read* with a note, rather than being retried nightly forever. **Check again** re-runs the check after a site redesign
+- **Nothing is lost when a page cannot be read.** Large employers often run their own job software that nothing can read automatically; those roles still reach you through LinkedIn, Himalayas and the other feeds
 - **Add from your jobs** — the Add dialog opens on the companies already in your database, with each one's best score and job count, so a list cannot fragment into `TP` and `TP Egypt` through hand-typing. A manual tab sits behind it
 - **Absences stay quiet** — an empty cell rather than *"Careers URL not set"*
 
@@ -453,7 +523,7 @@ or losing your scroll position. It reads the same counts as the sidebar and Anal
 
 | Tab | What it does |
 |-----|--------------|
-| **Workflow** | **Run now** triggers the pipeline and narrates the attempt in an `st.status`. Includes live progress with a countdown during rate-limit waits. Failures become a persistent block naming the cause. Below it: the schedule, the retention window, and a switch per source |
+| **Workflow** | **Run now** triggers the pipeline and narrates the attempt in an `st.status`. Includes live progress with a countdown during rate-limit waits. Failures become a persistent block naming the cause. Below it: the schedule, the retention window, a switch per source, and the intake limits with a live estimate of how long a full intake takes to score |
 | **Config** | The LLM provider (presets or a custom OpenAI-compatible endpoint), the match cutoff and scoring delay, the SMTP account with a test send, and Telegram/Discord with a test per channel. Secrets are write-only — a stored one shows as `stored, ends abcd` with an explicit **Clear**. The keys that can only live in `.env` are listed here read-only, with the reason |
 | **CV** | `cv.docx · 2.6 MB · file changed 27 Mar 2026 (4mo ago)`, the extracted titles and skills as chips (`4 titles · 18 skills · extracted 5mo ago` — a different event, so a different label), a download button, and the uploader collapsed behind **Replace CV** with a size diff and an explicit confirm |
 | **Searches** | `params/linkedin_searches.txt` as an editable table — one row per LinkedIn query, with `f_TPR` values shown as *Past week* and Easy Apply as a checkbox. The keyword-extraction prompt sits below it. **Save changes** stays disabled until something actually changes, and the heading turns to `● Unsaved changes` when it does |
@@ -536,6 +606,22 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 | `POST` | `/api/starred/toggle` | `{"company_name": "..."}` | Star if missing, unstar if present |
 | `PATCH` | `/api/starred/{id}` | `{"careers_url": "...", "notes": "..."}` | Update URL / notes |
 | `DELETE` | `/api/starred/{id}` | - | Remove a starred company |
+
+**Companies** (`/api/companies`) — the same rows as `/api/starred`, addressed as the company
+list that Phase 2's fetching works over:
+
+| Method | Endpoint | Params / Body | Description |
+|--------|----------|---------------|-------------|
+| `GET` | `/api/companies` | - | Every company with its fetch verdict: `fetch_method`, `fetch_note`, `ats`, `in_workflow`, `starred`, `last_scraped_at`, `last_job_count` |
+| `PATCH` | `/api/companies/{id}` | `{"in_workflow": true, "starred": false, "careers_url": "..."}` | Partial update. Turning `in_workflow` on returns **409** when the careers page has not been checked or cannot be read — the switch cannot claim something the app cannot do. A new `careers_url` resets the verdict to `unknown` and schedules a fresh check |
+| `POST` | `/api/companies/{id}/scrape` | - | Fetch this one company now, whatever its switch says. Writes through the normal intake path, so blocklist, seen-jobs and fingerprint all apply. Returns `{queued, already_seen, blocked, found, over_cap}`. Opens **no** `workflow_runs` row — it is not a run |
+| `POST` | `/api/companies/{id}/detect` | - | Check the careers URL again, in the background. Useful after a site redesign |
+
+`fetch_method` is the row's verdict and has four states: `unknown` (not checked yet), `ats`
+(a Greenhouse, Lever or Ashby board — one request, full descriptions), `page` (no board, but
+the page publishes structured job data), and `unreadable` (listings are rendered in the
+browser, or `robots.txt` asks us not to read them; `fetch_note` says which). Only `ats` and
+`page` may be switched into the workflow.
 
 **Blocked companies** (`/api/blocked`) — same shape as starred, but these are filtered out:
 
@@ -690,7 +776,9 @@ The email is sent via SMTP using the account set in **Settings → Config** (`SM
 
 ### Job scoring & cover letter (every job)
 
-One LLM call per scraped job — scores the job against your CV and generates a cover letter for fits.
+One LLM call per *queued* job — scores it against your CV and generates a cover letter for fits.
+Only jobs that pass the intake gate get this far, which is what keeps a large feed from turning
+into a large bill: see [What reaches the scorer](#what-reaches-the-scorer).
 
 | Component | Tokens (approx) |
 |-----------|----------------|

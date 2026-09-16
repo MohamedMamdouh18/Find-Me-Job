@@ -1,0 +1,109 @@
+{
+ "jobs": [
+  {
+   "absolute_url": "https://stripe.com/jobs/search?gh_jid=8172487",
+   "data_compliance": [
+    {
+     "type": "gdpr",
+     "requires_consent": false,
+     "requires_processing_consent": false,
+     "requires_retention_consent": false,
+     "retention_period": null,
+     "demographic_data_consent_applies": false
+    }
+   ],
+   "education": "education_required",
+   "internal_job_id": 3537052,
+   "location": {
+    "name": "Dublin"
+   },
+   "metadata": null,
+   "id": 8172487,
+   "updated_at": "2026-09-12T13:25:25-04:00",
+   "requisition_id": "See Opening ID",
+   "title": "Abuse Investigator",
+   "company_name": "Stripe",
+   "first_published": "2026-09-03T13:30:34-04:00",
+   "language": "en",
+   "application_deadline": null,
+   "content": "&lt;h2&gt;&lt;strong&gt;Who we are &lt;/strong&gt;&lt;/h2&gt;\n&lt;h3&gt;&lt;strong&gt;About Stripe&lt;/strong&gt;&lt;/h3&gt;\n&lt;p&gt;&lt;span style=&quot;font-weight: 400;&quot;&gt;Stripe is a financial infrastructure platform for businesses. Millions of companies - from the world\u2019s largest enterprises to the most ambitious startups - use Stripe to accept payments, grow their revenue, and accelerate new business opportunities. Our mission is to increase the GDP of the internet, and we have a staggering amount of work ahead. That means you have an unprecedented opportunity to put the global economy within everyone&#39;s reach while doing the most important work of your career.&lt;/span&gt;&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;About the team&lt;/strong&gt;&lt;/h3&gt;\n&lt;p&gt;Abuse Operations is the front-line incident response and remediation function handling active product abuse and fraud impacting Stripe and its merchants. This multi-disciplinary group, spanning Incident Managers, Investigators, Forward Deployed Security Engineers, and Data Scientists, neutralizes active attacks, gathers requirements for operational tooling, and leads incidents. The team&amp;nbsp; works directly with impacted merchants to resolve technical incidents and policy abuse rapidly. Operating primarily across Eastern, Pacific and Western European time zones, these team members regularly coordinate with global stakeholders across the world.&lt;/p&gt;\n&lt;h2&gt;&lt;strong&gt;What you\u2019ll do&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;You&#39;ll play a critical role in safeguarding our financial ecosystem by investigating high-risk accounts and identifying complex patterns of fraud during incidents. You will lead incident response for product abuse and fraud events, conducting deep-dive analyses to identify root causes. By collaborating cross-functionally, you will drive improvements that enhance our fraud detection and prevention strategies at scale. Your expertise will be essential in automating response processes through agentic approaches, allowing us to safeguard merchants and neutralize threats with speed and precision.&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;Responsibilities&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Investigate, mitigate, and remediate urgent fraud incidents (e.g., ATO, card testing), utilizing FT3-mapped detection and signals enrichment to reduce uncertainty and accelerate response.&lt;/li&gt;\n&lt;li&gt;As part of incidents, analyze high-risk accounts to identify fraudulent merchants, card testing, account takeovers, and other fraud vectors, classifying them using FT3 (Fraud Taxonomy 3.0) to standardize threat intelligence.&lt;/li&gt;\n&lt;li&gt;Lead incident root cause analyses to identify gaps in current systems and strategies, leveraging the FT3 framework, data-driven model to drive enhancements and process improvements for emerging fraud risks.&lt;/li&gt;\n&lt;li&gt;Streamline incident response capabilities, ensuring the tooling and processes are clear, accurate and efficient&lt;/li&gt;\n&lt;li&gt;Work cross-functionally with security, fraud and data science teams to build agentic solutions for responding to abuse incidents at scale&lt;/li&gt;\n&lt;li&gt;Effectively communicate cross-functionally with legal and policy teams to assess and mitigate risks, while demonstrating strong problem-solving under pressure.&lt;/li&gt;\n&lt;li&gt;Collaborate effectively with teammates, leading projects, mentoring others, and developing and championing quality standards within the team&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h2&gt;&lt;strong&gt;Who you are&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;&lt;span style=&quot;font-weight: 400;&quot;&gt;We&#39;re looking for someone who meets the minimum requirements to be considered for the role. If you meet these requirements, you are encouraged to apply. The preferred qualifications are a bonus, not a requirement.&lt;/span&gt;&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;Minimum requirements&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;5+ years of experience conducting incident response in security, product abuse or trust domains&lt;/li&gt;\n&lt;li&gt;5+ years experience analyzing large data sets to solve problems and/or building models with a behavioral approach to fraud detection&lt;/li&gt;\n&lt;li&gt;B.S. or M.S. Computer Science or related field, or equivalent experience&lt;/li&gt;\n&lt;li&gt;Expert knowledge of Python and SQL, and familiarity with other programming languages&lt;/li&gt;\n&lt;li&gt;Existing experience with log analysis (e.g. first or third party applications, system / data access, event logs), network security, digital forensics, and incident response investigations&lt;/li&gt;\n&lt;li&gt;Ability to communicate results clearly and focus on impact&lt;/li&gt;\n&lt;li&gt;Ability to think creatively and holistically about reducing risk in a complex environment&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h3&gt;&lt;strong&gt;Preferred qualifications&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;An adversarial mindset, understanding the goals, behaviors, and TTPs of threat actors.&lt;/li&gt;\n&lt;li&gt;Experience with engineering, data processing and analysis tools (e.g. Databricks, Trino, etc.)&lt;/li&gt;\n&lt;li&gt;Familiarity with common open-source frameworks for big data processing and/or data science (PySpark, Pandas, Sci-kit Learn, etc.)&lt;/li&gt;\n&lt;li&gt;Experience with tactical threat intelligence and/or hunting for sophisticated threat actors in an enterprise environment&lt;/li&gt;\n&lt;li&gt;Ability to proactively challenge the status quo by leveraging data and taking a user-centric approach to address complex product integrity challenges&lt;/li&gt;\n&lt;/ul&gt;",
+   "departments": [
+    {
+     "id": 81946,
+     "name": "8611 Security Analytics",
+     "child_ids": [],
+     "parent_id": 78876
+    }
+   ],
+   "offices": [
+    {
+     "id": 87011,
+     "name": "Ireland Locations",
+     "location": null,
+     "child_ids": [
+      80459,
+      80460
+     ],
+     "parent_id": 17446
+    }
+   ],
+   "ai_disclaimer": null,
+   "include_ai_disclaimer": false,
+   "ai_opt_out_request_url": "http://app.greenhouse.io/ai_opt_out_request/job_post/8172487/ai_opt_out"
+  },
+  {
+   "absolute_url": "https://stripe.com/jobs/search?gh_jid=8172508",
+   "data_compliance": [
+    {
+     "type": "gdpr",
+     "requires_consent": false,
+     "requires_processing_consent": false,
+     "requires_retention_consent": false,
+     "retention_period": null,
+     "demographic_data_consent_applies": false
+    }
+   ],
+   "education": "education_required",
+   "internal_job_id": 3537062,
+   "location": {
+    "name": "Dublin"
+   },
+   "metadata": null,
+   "id": 8172508,
+   "updated_at": "2026-09-10T13:11:58-04:00",
+   "requisition_id": "See Opening ID",
+   "title": "Abuse Investigator",
+   "company_name": "Stripe",
+   "first_published": "2026-09-03T13:32:53-04:00",
+   "language": "en",
+   "application_deadline": null,
+   "content": "&lt;h2&gt;&lt;strong&gt;Who we are &lt;/strong&gt;&lt;/h2&gt;\n&lt;h3&gt;&lt;strong&gt;About Stripe&lt;/strong&gt;&lt;/h3&gt;\n&lt;p&gt;&lt;span style=&quot;font-weight: 400;&quot;&gt;Stripe is a financial infrastructure platform for businesses. Millions of companies - from the world\u2019s largest enterprises to the most ambitious startups - use Stripe to accept payments, grow their revenue, and accelerate new business opportunities. Our mission is to increase the GDP of the internet, and we have a staggering amount of work ahead. That means you have an unprecedented opportunity to put the global economy within everyone&#39;s reach while doing the most important work of your career.&lt;/span&gt;&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;About the team&lt;/strong&gt;&lt;/h3&gt;\n&lt;p&gt;Abuse Operations is the front-line incident response and remediation function handling active product abuse and fraud impacting Stripe and its merchants. This multi-disciplinary group, spanning Incident Managers, Investigators, Forward Deployed Security Engineers, and Data Scientists, neutralizes active attacks, gathers requirements for operational tooling, and leads incidents. The team&amp;nbsp; works directly with impacted merchants to resolve technical incidents and policy abuse rapidly. Operating primarily across Eastern, Pacific and Western European time zones, these team members regularly coordinate with global stakeholders across the world.&lt;/p&gt;\n&lt;h2&gt;&lt;strong&gt;What you\u2019ll do&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;You&#39;ll play a critical role in safeguarding our financial ecosystem by investigating high-risk accounts and identifying complex patterns of fraud during incidents. You will lead incident response for product abuse and fraud events, conducting deep-dive analyses to identify root causes. By collaborating cross-functionally, you will drive improvements that enhance our fraud detection and prevention strategies at scale. Your expertise will be essential in automating response processes through agentic approaches, allowing us to safeguard merchants and neutralize threats with speed and precision.&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;Responsibilities&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Investigate, mitigate, and remediate urgent fraud incidents (e.g., ATO, card testing), utilizing FT3-mapped detection and signals enrichment to reduce uncertainty and accelerate response.&lt;/li&gt;\n&lt;li&gt;As part of incidents, analyze high-risk accounts to identify fraudulent merchants, card testing, account takeovers, and other fraud vectors, classifying them using FT3 (Fraud Taxonomy 3.0) to standardize threat intelligence.&lt;/li&gt;\n&lt;li&gt;Lead incident root cause analyses to identify gaps in current systems and strategies, leveraging the FT3 framework, data-driven model to drive enhancements and process improvements for emerging fraud risks.&lt;/li&gt;\n&lt;li&gt;Streamline incident response capabilities, ensuring the tooling and processes are clear, accurate and efficient&lt;/li&gt;\n&lt;li&gt;Work cross-functionally with security, fraud and data science teams to build agentic solutions for responding to abuse incidents at scale&lt;/li&gt;\n&lt;li&gt;Effectively communicate cross-functionally with legal and policy teams to assess and mitigate risks, while demonstrating strong problem-solving under pressure.&lt;/li&gt;\n&lt;li&gt;Collaborate effectively with teammates, leading projects, mentoring others, and developing and championing quality standards within the team&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h2&gt;&lt;strong&gt;Who you are&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;&lt;span style=&quot;font-weight: 400;&quot;&gt;We&#39;re looking for someone who meets the minimum requirements to be considered for the role. If you meet these requirements, you are encouraged to apply. The preferred qualifications are a bonus, not a requirement.&lt;/span&gt;&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;Minimum requirements&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;3+ years of experience conducting incident response in security, product abuse or trust domains&lt;/li&gt;\n&lt;li&gt;3+ years experience analyzing large data sets to solve problems and/or building models with a behavioral approach to fraud detection&lt;/li&gt;\n&lt;li&gt;B.S. or M.S. Computer Science or related field, or equivalent experience&lt;/li&gt;\n&lt;li&gt;Expert knowledge of Python and SQL, and familiarity with other programming languages&lt;/li&gt;\n&lt;li&gt;Existing experience with log analysis (e.g. first or third party applications, system / data access, event logs), network security, digital forensics, and incident response investigations&lt;/li&gt;\n&lt;li&gt;Ability to communicate results clearly and focus on impact&lt;/li&gt;\n&lt;li&gt;Ability to think creatively and holistically about reducing risk in a complex environment&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h3&gt;&lt;strong&gt;Preferred qualifications&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;An adversarial mindset, understanding the goals, behaviors, and TTPs of threat actors.&lt;/li&gt;\n&lt;li&gt;Experience with engineering, data processing and analysis tools (e.g. Databricks, Trino, etc.)&lt;/li&gt;\n&lt;li&gt;Familiarity with common open-source frameworks for big data processing and/or data science (PySpark, Pandas, Sci-kit Learn, etc.)&lt;/li&gt;\n&lt;li&gt;Experience with tactical threat intelligence and/or hunting for sophisticated threat actors in an enterprise environment&lt;/li&gt;\n&lt;li&gt;Ability to proactively challenge the status quo by leveraging data and taking a user-centric approach to address complex product integrity challenges&lt;/li&gt;\n&lt;/ul&gt;",
+   "departments": [
+    {
+     "id": 81946,
+     "name": "8611 Security Analytics",
+     "child_ids": [],
+     "parent_id": 78876
+    }
+   ],
+   "offices": [
+    {
+     "id": 87011,
+     "name": "Ireland Locations",
+     "location": null,
+     "child_ids": [
+      80459,
+      80460
+     ],
+     "parent_id": 17446
+    }
+   ],
+   "ai_disclaimer": null,
+   "include_ai_disclaimer": false,
+   "ai_opt_out_request_url": "http://app.greenhouse.io/ai_opt_out_request/job_post/8172508/ai_opt_out"
+  }
+ ],
+ "meta": {
+  "total": 2
+ }
+}

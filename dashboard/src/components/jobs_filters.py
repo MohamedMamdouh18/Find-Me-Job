@@ -223,6 +223,8 @@ def render_jobs_filters(counts: dict) -> dict:
     with search_col:
         search = st.text_input(
             "Search",
+            help="Matches the job title, the company and the location. Not the description "
+                 "text — use the filters below to narrow by source, company or score.",
             key="jobs_search",
             label_visibility="collapsed",
             placeholder="Search jobs, companies or locations…",
@@ -322,6 +324,8 @@ def _render_advanced(options: dict, view: str) -> dict:
         website = st.selectbox(
             "Source", ["all"] + options.get("websites", []), key="jobs_website",
             format_func=lambda x: "Any source" if x == "all" else x,
+            help="Where the posting came from. Greenhouse, Lever and Ashby mean it came "
+                 "from that company's own job board — the original, not a copy.",
         )
     with c4:
         location = st.selectbox(

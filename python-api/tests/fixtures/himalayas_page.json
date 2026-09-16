@@ -1,0 +1,99 @@
+{
+ "comments": "21/08/2026: Cursor pagination is now available and is the preferred way to page through the feed. Pass the nextCursor value from each response back as ?cursor=. It is faster than offset and will never return the same job twice. The offset parameter is deprecated and will be removed in a future release. 13/03/2026: The API has been updated to include the companySlug field in the response.",
+ "updatedAt": 1789543584,
+ "offset": 0,
+ "limit": 2,
+ "totalCount": 102388,
+ "nextCursor": "MjAyNi0wOS0xNlQwNzoyNjoxNC4yMTU4NDlafDIyMjIyODM",
+ "jobs": [
+  {
+   "title": "Chaplain Part Time - Orangeburg, SC",
+   "excerpt": "It's fun to work in a company where people truly BELIEVE in what they're doing!",
+   "companyName": "Marketplace Ministries, Inc.",
+   "companySlug": "marketplace-ministries-inc",
+   "companyLogo": "",
+   "employmentType": "Part Time",
+   "minSalary": null,
+   "maxSalary": null,
+   "salaryPeriod": "annual",
+   "seniority": [
+    "Mid-level"
+   ],
+   "currency": null,
+   "locationRestrictions": [
+    "United States"
+   ],
+   "timezoneRestrictions": [
+    -10,
+    -9,
+    -8,
+    -7,
+    -6,
+    -5,
+    14
+   ],
+   "categories": [
+    "Chaplain",
+    "Ministry",
+    "Pastoral-Care",
+    "Clergy",
+    "Social-Services",
+    "Part-Time-Chaplain",
+    "Part-Time-Religious-Counselor",
+    "Healthcare-Chaplain"
+   ],
+   "parentCategories": [],
+   "description": "<p>It's fun to work in a company where people truly BELIEVE in what they're doing!<br>We're committed to bringing passion and customer focus to the business.</p><p><b>Please Note:  While assigned hours are generally consistent from week to week, there are no guaranteed minimal hours and positional needs will vary depending on Chaplain availability and Client requirements.</b></p><h3>Position Summary </h3><p>Chaplains are the frontline staff fulfilling the mission and Christian ministry of MCHAP, by using their gifts and talents to serve company employees and their immediate families. </p><h3>Part Time, Orangeburg, SC</h3><p><b>Essential Functions and Responsibilities </b><br>\u2022 Serves as a messenger and conveyor of faith, mission, and purpose.<br>\u2022 Interacts with companies, their employees, and the community in a manner that exhibits character through personal and spiritual disciplines.</p><p><b>Ministry </b></p><ul>\n<li>Makes regular visits to company worksites (usually weekly) to interact with employees and build relationships of trust and friendship motivated by Christian faith.</li>\n<li>Visits employees or immediate family members wherever care can be expressed and help given: hospitals, nursing homes, funeral homes, family residences, or other sites.</li>\n<li>May provide confidential pastoral discussions for problem issues of employees and their immediate family members including, but not limited to family matters, divorce, serious illness, care of aging parents, death and grief recovery, parenting, financial situations that may include debt discussions, budgeting, and other life issues related to financial stress, as well as any other personal issues. Provides referral service and acts as coordinator for specialized assistance to employees and/or immediate family members with specific needs.</li>\n<li>May assist in the planning, conduct or attend funerals for employees or immediate family members, including follow-up support and encouragement to immediate family members during the grief period.</li>\n<li>May make jail visits to employees and immediate family members.</li>\n<li>Works with companies to serve notifications of death and serious injuries to families and other employees, encouraging those impacted by various tragedies.</li>\n<li>May provide post-termination care for laid-off or terminated employees in order to foster a smooth transition to another work environment.</li>\n<li>May facilitate, but not lead, spiritual enrichment activities, as an employee-sponsored and led activity will usually be more fruitful than a chaplain led event.</li>\n<li>Provides, as appropriate/requested, literature and other resources to assist company employees with life issues.</li>\n<li>Represents companies to clients/customers where it would be appropriate to ministry services involved (i.e., serious illness, accidents, traumatic events, and funerals).</li>\n<li>Participates in new employee orientation to explain the Employee Care Service and the role of the Chaplain Team.</li>\n<li>With Executive Director of Operations (EDO) permission, responds positively and assertively to other duties and services requested by executive leadership of companies, within the scope of the Letter of Agreement between MCHAP Chaplains and the company.</li>\n</ul><p><b>Requirements </b><br>1. Has ability to work as member of interdisciplinary group and in an interfaith setting. Possesses ability to accept different lifestyles, cultures, beliefs, and values.</p><p>2. Skills to effectively listen and interact with clients, employees, and their families. Skills to deliver community presentations. Skills to deal effectively with family members and staff under stressful circumstances. High regard for the dignity and worth of clients, employees and their families. Skills to cope with stressful situations and able to document accurately according to standards.</p><p>3. Spiritual maturity and commitment to a Christian lifestyle and to MCHAPs Ministry values. Incorporates Christian values and beliefs in day-to-day activities and in the performance of job duties. Has a fundamental understanding of the Holy Bible and its proper application. Attests to a saving faith in Jesus Christ and actively participates in a biblically based church.</p><p>4. Demonstrated ability to interact professionally with diplomacy, patience, and courtesy with diverse groups; ability to establish and maintain effective and cooperative working relationships while providing exceptional customer service. Ability to make administrative and procedural decisions and judgments on sensitive, confidential issues.</p><p>5. Demonstrated excellent oral and written communication skills to communicate and interact effectively with leadership, colleagues, employees, and families. Ability to maintain emotional stability to cope with human suffering, emergencies, and other stresses.</p><p>6. Demonstrated skill in analyzing information to define and follow up on problems or objectives. Ability to identify solutions and solve problems. Demonstrated skill in interpreting policy and procedures related to the position and keeping others informed.</p><p>7. Demonstrated computer proficiency using Google Suites, Microsoft Office, or other equivalent software, internet, email messaging, and web-based software applications. Ability to understand and learn new technology programs.</p><p>8. Must have active state driver\u2019s license and state minimum auto insurance (state(s) where servicing clients).</p><p><b>Conditions of Employment </b><br>Must pass a pre-employment background check. </p><p><b>Work Environment </b><br>This is a remote position in the field, and the work environment is dependent upon the clients\u2019 worksite. Work environments can include manufacturing, hospitals, office buildings, and funeral homes with differing levels of temperature, noise, and light exposure.</p><p>Originally posted on <a href=\"https://himalayas.app\">Himalayas</a></p>",
+   "pubDate": 1789543584,
+   "expiryDate": 1794727583,
+   "applicationLink": "https://himalayas.app/companies/marketplace-ministries-inc/jobs/chaplain-part-time-orangeburg-sc-2723009539",
+   "guid": "https://himalayas.app/companies/marketplace-ministries-inc/jobs/chaplain-part-time-orangeburg-sc-2723009539"
+  },
+  {
+   "title": "University Account Executive",
+   "excerpt": "12twenty is the leading platform for employers to connect with elite early career professionals.",
+   "companyName": "12twenty",
+   "companySlug": "12twenty",
+   "companyLogo": "https://cdn-images.himalayas.app/8r7vwlkwgfgglgtgghbyj8afbakm",
+   "employmentType": "Full Time",
+   "minSalary": 110000,
+   "maxSalary": 110000,
+   "salaryPeriod": "annual",
+   "seniority": [
+    "Mid-level"
+   ],
+   "currency": "USD",
+   "locationRestrictions": [
+    "United States"
+   ],
+   "timezoneRestrictions": [
+    -10,
+    -9,
+    -8,
+    -7,
+    -6,
+    -5,
+    14
+   ],
+   "categories": [
+    "Account-Executive",
+    "Higher-Education-Sales",
+    "Sales",
+    "Business-Development",
+    "University-Relations",
+    "Educational-Account-Executive",
+    "Higher-Education-Sales-Executive",
+    "Academic-Account-Manager",
+    "Education-Sales-Executive"
+   ],
+   "parentCategories": [
+    "Sales"
+   ],
+   "description": "<div class=\"content-intro\"><p><strong><a href=\"https://himalayas.app/companies/12twenty\">12twenty</a> is the leading platform for employers to connect with elite early career professionals.</strong> Our community includes millions of students, recent graduates, and alumni from top business schools, law schools, and universities around the world. We take pride connecting our community of candidates with recruiters from top companies across industries. Come join our fast growing organization! </p></div><p><strong>Summary</strong>:</p><div><div>\n<p>We are looking for a highly-motivated Account Executive with experience building partnerships in the colleges and universities space. Your role will be to grow and maintain relationships with administrators and staff at these institutions, evangelize the <a href=\"https://himalayas.app/companies/12twenty\">12twenty</a> platform, and close new business to expand our impact across the higher educational landscape.</p>\n<p>You\u2019ll engage with decision-makers such as Career Center Directors, Program Administrators, IT staff, Deans, etc. This role requires strong communication skills, an understanding of the unique needs of higher education, and a proven ability to align our solutions with their objectives. If you\u2019re a self-starter with a record of exceeding quotas and working with these types of institutions, we\u2019d love to hear from you.</p>\n<p>Join a team of passionate and dedicated professionals, all focused on helping institutions meet their goals. We believe in supporting each other and creating endless growth opportunities. Let\u2019s succeed together.</p>\n<p>This is a remote U.S. opportunity with a travel requirement of up to 20%. </p>\n</div></div><div><strong>Responsibilities Include: \u200b\u200b\u200b\u200b\u200b\u200b</strong></div><ul>\n<li><strong>Build and maintain strong relationships with Career Services administrators and other key stakeholders at campuses, demonstrating how <a href=\"https://himalayas.app/companies/12twenty\">12twenty</a> can be a valuable resource for their campus community, including staff, employers, and students/alumni.</strong></li>\n<li><strong>Conduct virtual and in-person platform demonstrations tailored to the needs of Career Services administrators</strong></li>\n<li><strong>Achieve quarterly and annual sales targets by generating scalable revenue</strong></li>\n<li><strong>Create and negotiate sales proposals and contracts, ensuring they meet the specific needs of Career Services departments and stakeholders</strong></li>\n<li><strong>Collaborate with the Implementation, Customer Success, and Product Teams to gather feedback and influence product features that align with the needs of these institutions</strong></li>\n</ul><div><strong><strong>Requirements: </strong></strong></div><ul>\n<li><strong><strong>3+ years of experience in higher education, ideally within Career Services, Employer Relations, or University Recruiting functions</strong></strong></li>\n<li><strong><strong>2+ years of proven sales experience preferred</strong></strong></li>\n<li><strong><strong>BA/BS degree required</strong></strong></li>\n<li><strong><strong>Excellent communication, relationship-building, and presentation skills</strong></strong></li>\n<li><strong><strong>A hunter sales mentality with excellent prospecting skills</strong></strong></li>\n<li><strong><strong>A self-starter who can manage their own pipeline while being a strong team player</strong></strong></li>\n<li><strong><strong>Dedication to professionalism and excellence in all client interactions</strong></strong></li>\n</ul><div><strong><strong><strong>Bonus points:</strong></strong></strong></div><ul>\n<li><strong><strong><strong>Experience with Salesforce</strong></strong></strong></li>\n<li><strong><strong><strong>Strong data or technology experience</strong></strong></strong></li>\n</ul><p><strong><strong><strong><em>Annual compensation range: Up to $110,000 OTE</em></strong></strong></strong></p><div class=\"content-conclusion\">\n<div class=\"p-rich_text_section\">\n<p><strong><strong><strong><em>The annual compensation range for this position is listed above. This salary range is an estimate, and the actual salary may vary based on company compensation practices, job related skills, depth of experience, relevant certifications and trainings, in addition to geographic location. </em></strong></strong></strong></p>\n<p><strong><strong><strong><em>In addition to the range below, US employees are eligible for equity. Employees in this position are also eligible to participate in the Company\u2019s standard benefit programs, which currently include the following: medical, dental, and vision benefits, 401(k), and paid time off.</em></strong></strong></strong></p>\n</div>\n<h3><strong><strong><strong>Benefits &amp; Perks:</strong></strong></strong></h3>\n<ul class=\"p-rich_text_list p-rich_text_list__bullet\">\n<li><strong><strong><strong>Competitive salary</strong></strong></strong></li>\n<li><strong><strong><strong>Generous PTO policy</strong></strong></strong></li>\n<li><strong><strong><strong>Full benefits, including 401(k)</strong></strong></strong></li>\n<li><strong><strong><strong>Regular team happy hours and activities</strong></strong></strong></li>\n<li><strong><strong><strong>Remote work flexibility</strong></strong></strong></li>\n</ul>\n<p><strong><strong><strong><a href=\"https://himalayas.app/companies/12twenty\">12twenty</a> is an enterprise level talent acquisition platform connecting the world\u2019s largest employers with students and alumni from top business schools and other graduate level institutions. The market for talent, especially highly qualified talent, continues to grow more and more competitive. <a href=\"https://himalayas.app/companies/12twenty\">12twenty</a>\u2019s unique position as the connection between students, schools, and employers has fueled our rocketship growth. Come be part of our journey! </strong></strong></strong></p>\n<p><strong><strong><strong><a href=\"https://himalayas.app/companies/12twenty\">12twenty</a> offers competitive salary and stock options and an amazing team to innovate and collaborate with. We love what we do, we embody a passion for continuous improvement, and we support each other to be excellent!</strong></strong></strong></p>\n<p><strong><strong><strong>Check out a video from a recent user conference: </strong></strong></strong></p>\n</div><p>Originally posted on <a href=\"https://himalayas.app\">Himalayas</a></p>",
+   "pubDate": 1789543574,
+   "expiryDate": 1794727573,
+   "applicationLink": "https://himalayas.app/companies/12twenty/jobs/university-account-executive-9844964501",
+   "guid": "https://himalayas.app/companies/12twenty/jobs/university-account-executive-9844964501"
+  }
+ ]
+}

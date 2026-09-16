@@ -538,6 +538,56 @@ def send_email(recipient: str, subject: str, body: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+def get_companies() -> list[dict]:
+    """The company list with its fetch verdict — what the row renders and what the
+    in-workflow switch consults before it lets itself be turned on."""
+    try:
+        return _session.get(f"{API}/companies", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch companies")
+        return []
+
+
+def update_company(company_id: int, payload: dict) -> tuple[bool, str]:
+    """Partial update. A 409 is the API refusing to put a company we cannot read into
+    the workflow, and its detail says why — surface it rather than swallowing it."""
+    try:
+        res = _session.patch(f"{API}/companies/{company_id}", json=payload, timeout=TIMEOUT)
+        if res.status_code == 200:
+            return True, ""
+        try:
+            return False, str(res.json().get("detail", res.text))
+        except ValueError:
+            return False, res.text
+    except requests.RequestException as e:
+        logger.exception("Failed to update company %s", company_id)
+        return False, str(e)
+
+
+def scrape_company(company_id: int) -> tuple[bool, dict | str]:
+    """Fetch one company now. Fills the queue; scoring happens on the next run."""
+    try:
+        res = _session.post(f"{API}/companies/{company_id}/scrape", timeout=120)
+        if res.status_code == 200:
+            return True, res.json()
+        try:
+            return False, str(res.json().get("detail", res.text))
+        except ValueError:
+            return False, res.text
+    except requests.RequestException as e:
+        logger.exception("Failed to scrape company %s", company_id)
+        return False, str(e)
+
+
+def recheck_company(company_id: int) -> bool:
+    try:
+        res = _session.post(f"{API}/companies/{company_id}/detect", timeout=TIMEOUT)
+        return res.status_code == 200
+    except requests.RequestException:
+        logger.exception("Failed to re-check company %s", company_id)
+        return False
+
+
 def get_sources() -> list[dict]:
     """Every registered scraper and whether the next run will use it."""
     try:

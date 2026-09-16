@@ -1,3 +1,4 @@
+from .companies import CompanyRepository
 from .cv_keywords import CVKeywordsRepository
 from .filtered_jobs import FilteredJobRepository
 from .job_status_history import JobStatusHistoryRepository
@@ -11,6 +12,7 @@ from .app_settings import AppSettingRepository
 from .sources import SourceRepository
 
 __all__ = [
+    "CompanyRepository",
     "CVKeywordsRepository",
     "FilteredJobRepository",
     "JobStatusHistoryRepository",

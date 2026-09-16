@@ -539,7 +539,9 @@ def _render_keywords():
 
 
 def _render_cv_upload(info: dict):
-    uploaded = st.file_uploader("Replace cv.docx", type=["docx"], key="cv_uploader")
+    uploaded = st.file_uploader("Replace cv.docx", help="The document every job is scored "
+                                "against. Replacing it re-reads your titles and skills on the "
+                                "next run, which changes what the feeds keep.", type=["docx"], key="cv_uploader")
     if uploaded is None:
         st.caption("Only .docx is parsed — .pdf and .doc are not read by the extractor.")
         return
@@ -727,7 +729,68 @@ def _render_searches():
                        "Searches saved." if ok else f"Save failed: {msg}")
                 st.rerun()
 
+    _render_wwr_categories()
     _render_prompt_editor()
+
+
+# We Work Remotely is the one feed that narrows server-side. Slugs must match
+# WWR_CATEGORY_SLUGS in services/settings.py, which validates the write.
+WWR_CATEGORIES = {
+    "remote-programming-jobs": "Programming",
+    "remote-devops-sysadmin-jobs": "DevOps & sysadmin",
+    "remote-design-jobs": "Design",
+    "remote-product-jobs": "Product",
+    "remote-customer-support-jobs": "Customer support",
+    "remote-copywriting-jobs": "Copywriting",
+    "remote-sales-and-marketing-jobs": "Sales & marketing",
+    "remote-management-and-finance-jobs": "Management & finance",
+    "all-other-remote-jobs": "Everything else",
+}
+WWR_MAX = 5
+
+
+def _render_wwr_categories():
+    """The only other source where you choose what is searched rather than filtering
+    afterwards — so it belongs beside the LinkedIn searches, not in Config."""
+    values = library.settings()
+    if not values:
+        return
+
+    current = [
+        slug
+        for slug in str(values.get("WWR_CATEGORIES") or "").split(",")
+        if slug.strip() in WWR_CATEGORIES
+    ]
+
+    with st.container(border=True):
+        section_head(
+            "We Work Remotely categories",
+            "Which parts of the board to read. Leave empty for the all-jobs feed.",
+            state=f'<span class="mono">{len(current) or "all"} selected</span>',
+        )
+
+        picked = st.multiselect(
+            "Categories",
+            list(WWR_CATEGORIES),
+            default=current,
+            format_func=lambda slug: WWR_CATEGORIES[slug],
+            max_selections=WWR_MAX,
+            key="wwr_categories",
+            help="The category feeds are not a subset of the all-jobs feed — together they "
+                 "carry roughly three times as many postings. Picking the ones you actually "
+                 "want means fewer jobs thrown away by the keyword check, and better use of "
+                 "your intake limit. Each category is one more request, so at most five.",
+        )
+        st.caption(
+            "Empty means the all-jobs feed: one request, a broad mix, and most of it "
+            "discarded by the keyword check before anything is scored."
+        )
+
+        if st.button(
+            "Save categories", type="primary", key="wwr_save",
+            help="Applies to the next run.",
+        ):
+            _save_settings({"WWR_CATEGORIES": ",".join(picked)}, "We Work Remotely categories")
 
 
 def _render_prompt_editor():
@@ -744,6 +807,9 @@ def _render_prompt_editor():
         edited = st.text_area(
             "Prompt", value=current, height=260, key="prompt_edit",
             label_visibility="collapsed",
+            help="How the AI reads your CV: it turns the document into the job titles and "
+                 "skills the feeds are filtered against. It does not affect scoring or cover "
+                 "letters. Re-read on the next run after you replace the CV.",
         )
         dirty = edited.strip() != current.strip()
         with head_slot:
@@ -781,11 +847,16 @@ def _render_data():
         fmt_col, scope_col = st.columns([2, 3], vertical_alignment="bottom")
         with fmt_col:
             fmt = st.segmented_control(
-                "Format", ["CSV", "JSON"], default="CSV", key="export_format"
+                "Format", ["CSV", "JSON"], default="CSV", key="export_format",
+                help="CSV opens in a spreadsheet; JSON keeps the structure. Both carry the "
+                     "job's details, score and status — the full description and the cover "
+                     "letter are left out to keep the file small. Use Backup for everything.",
             ) or "CSV"
         with scope_col:
             scope = st.selectbox(
-                "Scope", ["Matched jobs", "All jobs"], key="export_scope"
+                "Scope", ["Matched jobs", "All jobs"], key="export_scope",
+                help="Matched only exports the jobs at or above your cutoff; All includes "
+                     "the ones that scored below it.",
             )
 
         matched_only = scope == "Matched jobs"
@@ -891,6 +962,9 @@ def _render_danger_zone():
         with d_col:
             if st.button(
                 "Clear all jobs", width="stretch", disabled=total == 0,
+                help="Deletes every scored job. Anything still queued is left alone and will "
+                     "be scored on the next run. Your companies, searches, CV and settings are "
+                     "untouched. Cannot be undone — take a backup first.",
                 icon=":material/delete_forever:", key="clear_all_jobs",
             ):
                 _clear_jobs_dialog(total)
@@ -1095,7 +1169,8 @@ def _render_schedule():
                     "interval. Overlapping runs are skipped, not queued."
                 )
 
-        if st.button("Save schedule", icon=":material/save:", type="primary", key="schedule_save"):
+        if st.button("Save schedule", help="Takes effect immediately. A run already in "
+                    "progress is not affected — only the next one moves.", icon=":material/save:", type="primary", key="schedule_save"):
             payload = {
                 "enabled": new_enabled,
                 "mode": new_mode,
@@ -1319,6 +1394,8 @@ def _render_providers(values: dict):
         names = list(LLM_PRESETS) + [CUSTOM_PRESET]
         chosen = st.selectbox(
             "Provider", names, index=names.index(preset), key="cfg_llm_preset",
+            help="Who scores your jobs and writes your cover letters. Any provider works as "
+                 "long as it speaks the OpenAI chat format; pick Custom to type your own.",
         )
         if chosen == CUSTOM_PRESET:
             url = st.text_input(
@@ -1331,10 +1408,17 @@ def _render_providers(values: dict):
             # previous provider's endpoint after switching preset.
             url = LLM_PRESETS[chosen]
             st.text_input("Endpoint", value=url, disabled=True)
-        model = st.text_input("Model", value=values.get("LLM_MODEL") or "", key="cfg_llm_model")
+        model = st.text_input(
+            "Model", value=values.get("LLM_MODEL") or "", key="cfg_llm_model",
+            help="Exactly as your provider names it, e.g. gemini-2.5-flash or gpt-4o-mini. "
+                 "A wrong name fails at the first job of the next run.",
+        )
         api_key = _secret_input("API key", "LLM_API_KEY", values)
 
-        if st.button("Save provider", icon=":material/save:", type="primary", key="cfg_save_llm"):
+        if st.button(
+            "Save provider", icon=":material/save:", type="primary", key="cfg_save_llm",
+            help="Applies to the next job scored. Nothing is re-scored.",
+        ):
             payload = {"LLM_URL": url.strip(), "LLM_MODEL": model.strip()}
             _apply_secret(payload, "LLM_API_KEY", api_key)
             _save_settings(payload, "Provider")
@@ -1357,7 +1441,11 @@ def _render_scoring(values: dict):
                  "long a run takes: 100 queued jobs at 20s is over half an hour.",
         )
 
-        if st.button("Save scoring", icon=":material/save:", type="primary", key="cfg_save_scoring"):
+        if st.button(
+            "Save scoring", icon=":material/save:", type="primary", key="cfg_save_scoring",
+            help="Changing the cutoff also re-labels the jobs you already have, so Matched "
+                 "always means the same thing across your whole list.",
+        ):
             _save_settings(
                 {"FILTERING_SCORE": int(cutoff), "SCORING_DELAY_SECONDS": int(delay)}, "Scoring"
             )
@@ -1385,22 +1473,38 @@ def _render_email(values: dict):
             "Send applications automatically", value=bool(values.get("AUTO_EMAIL")),
             key="cfg_auto_email",
         )
-        sender = st.text_input("Sender name", value=values.get("SENDER_NAME") or "", key="cfg_sender")
+        sender = st.text_input(
+            "Sender name", value=values.get("SENDER_NAME") or "", key="cfg_sender",
+            help="Your name as an employer sees it — on the application email and on the "
+                 "cover letter PDF.",
+        )
 
         left, right = st.columns(2)
         with left:
-            host = st.text_input("SMTP host", value=values.get("SMTP_HOST") or "", key="cfg_smtp_host")
-            user = st.text_input("SMTP user", value=values.get("SMTP_USER") or "", key="cfg_smtp_user")
+            host = st.text_input(
+                "SMTP host", value=values.get("SMTP_HOST") or "", key="cfg_smtp_host",
+                help="Your mail provider's outgoing server, e.g. smtp.gmail.com.",
+            )
+            user = st.text_input(
+                "SMTP user", value=values.get("SMTP_USER") or "", key="cfg_smtp_user",
+                help="The mailbox applications are sent from. Also printed on your cover "
+                     "letter PDF so employers can reply.",
+            )
         with right:
             port = st.number_input(
-                "SMTP port", min_value=1, max_value=65535,
+                "SMTP port",
+                help="587 for most providers, 465 if yours requires SSL.",
+                min_value=1, max_value=65535,
                 value=int(values.get("SMTP_PORT") or 587), key="cfg_smtp_port",
             )
             password = _secret_input("App password", "SMTP_APP_PASSWORD", values)
 
         save_col, test_col = st.columns([1, 1])
         with save_col:
-            if st.button("Save email", icon=":material/save:", type="primary", key="cfg_save_email"):
+            if st.button(
+                "Save email", icon=":material/save:", type="primary", key="cfg_save_email",
+                help="Applies to the next email sent.",
+            ):
                 payload = {
                     "AUTO_EMAIL": bool(auto),
                     "SENDER_NAME": sender.strip(),
@@ -1434,7 +1538,9 @@ def _render_notifications(values: dict):
         )
 
         telegram_id = st.text_input(
-            "Telegram chat id", value=values.get("TELEGRAM_ID") or "", key="cfg_tg_id"
+            "Telegram chat id", value=values.get("TELEGRAM_ID") or "", key="cfg_tg_id",
+            help="Your own Telegram user id — message @get_id_bot to find it. Needed "
+                 "alongside the bot token below.",
         )
         telegram_token = _secret_input("Telegram bot token", "TELEGRAM_BOT_TOKEN", values)
         discord = _secret_input(
@@ -1446,17 +1552,26 @@ def _render_notifications(values: dict):
         save_col, tg_col, dc_col = st.columns([2, 1, 1])
         with save_col:
             if st.button(
-                "Save notifications", icon=":material/save:", type="primary", key="cfg_save_notify"
+                "Save notifications", icon=":material/save:", type="primary", key="cfg_save_notify",
+                help="Run summaries go to every channel you fill in. A broken one is skipped, "
+                     "never enough to fail a run.",
             ):
                 payload: dict = {"TELEGRAM_ID": telegram_id.strip()}
                 _apply_secret(payload, "TELEGRAM_BOT_TOKEN", telegram_token)
                 _apply_secret(payload, "DISCORD_WEBHOOK_URL", discord)
                 _save_settings(payload, "Notifications")
         with tg_col:
-            if st.button("Test Telegram", key="cfg_test_tg"):
+            if st.button(
+                "Test Telegram", key="cfg_test_tg",
+                help="Sends one message now and reports what came back. A channel that is "
+                     "quiet because it is broken looks exactly like a quiet night.",
+            ):
                 _report_channel_test("telegram")
         with dc_col:
-            if st.button("Test Discord", key="cfg_test_dc"):
+            if st.button(
+                "Test Discord", key="cfg_test_dc",
+                help="Posts one message to the webhook now and reports the result.",
+            ):
                 _report_channel_test("discord")
 
 
@@ -1504,10 +1619,29 @@ def _render_config():
     _render_env_only()
 
 
+# What each source is, in the user's terms rather than the module's. A switch labelled
+# "Company boards" tells you nothing about where those jobs come from or what turns them on.
+SOURCE_HELP = {
+    "companies": "Fetches jobs straight from the careers pages you added in Companies — "
+                 "only the ones whose In workflow switch is on. Turning this off stops all "
+                 "of them at once without touching the individual switches.",
+    "linkedin": "Runs the searches you wrote in the Searches tab. The slowest and most "
+                "fragile source: LinkedIn can rate-limit or block the connection.",
+    "remoteok": "A remote-jobs feed. One request, capped at 100 postings.",
+    "himalayas": "A large remote-jobs feed — over 100,000 postings. Only ones matching your "
+                 "CV keywords are kept, and never more than the per-source limit below.",
+    "weworkremotely": "A curated remote-jobs feed. One request, descriptions included.",
+}
+
+
 def _render_sources():
     sources = _cached_sources()
     with st.container(border=True):
-        section_head("Sources", "Which sites the next run scrapes.")
+        section_head(
+            "Sources",
+            "Where jobs come from. Turning one off changes the next run only — jobs already "
+            "in your list stay where they are.",
+        )
 
         if not sources:
             st.info("No sources are registered.")
@@ -1515,7 +1649,10 @@ def _render_sources():
 
         for source in sources:
             enabled = st.toggle(
-                source["label"], value=bool(source["enabled"]), key=f"src_{source['name']}"
+                source["label"],
+                value=bool(source["enabled"]),
+                key=f"src_{source['name']}",
+                help=SOURCE_HELP.get(source["name"], "Include this source in the next run."),
             )
             if enabled != bool(source["enabled"]):
                 if put_source(source["name"], enabled):
@@ -1529,6 +1666,73 @@ def _render_sources():
             st.info(
                 "Every source is off. Runs still score whatever is already queued, "
                 "they just add nothing new."
+            )
+
+    _render_intake_limits()
+
+
+def _render_intake_limits():
+    """The two numbers that decide how long a run takes.
+
+    They were editable through the API from the day they were added, and invisible here,
+    which is the same as not existing: nobody tunes a number they cannot see.
+    """
+    values = library.settings()
+    if not values:
+        return
+
+    with st.container(border=True):
+        section_head(
+            "How much to take in",
+            "Sources offer far more jobs than are worth scoring. Each job that gets through "
+            "costs one AI call and one wait, so these two numbers decide how long a run takes.",
+        )
+
+        left, right = st.columns(2)
+        with left:
+            per_run = st.number_input(
+                "Jobs per run, in total", min_value=1, max_value=10000,
+                value=_int_setting(values, "INTAKE_MAX_PER_RUN", 200), step=25,
+                key="cfg_intake_run",
+                help="The ceiling for a whole run, across every source. This is the number "
+                     "that maps to time: see the estimate below.",
+            )
+        with right:
+            per_source = st.number_input(
+                "Jobs per source", min_value=1, max_value=10000,
+                value=_int_setting(values, "INTAKE_MAX_PER_SOURCE", 80), step=10,
+                key="cfg_intake_source",
+                help="Stops one big feed filling the whole run before the other sources are "
+                     "reached. A feed with 100,000 jobs would otherwise be the only one you "
+                     "ever see.",
+            )
+
+        delay = _int_setting(values, "SCORING_DELAY_SECONDS", 20)
+        minutes = round(per_run * delay / 60)
+        st.markdown(
+            readout(
+                "Scoring time for a full intake",
+                f"{per_run} new jobs × {delay}s ≈ <strong>{minutes} min</strong>",
+                note="Plus anything already queued from a previous run, which is scored first.",
+                tip="Change the delay in Config → Scoring.",
+            ),
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Jobs from the broad feeds — RemoteOK, Himalayas, We Work Remotely — are "
+            "keyword-checked against your CV first, so irrelevant ones cost nothing. Jobs "
+            "from a **company you added** and from **your own LinkedIn searches** skip that "
+            "check, because in both cases you already said what you wanted. Everything is "
+            "capped the same way."
+        )
+
+        if st.button("Save limits", icon=":material/save:", type="primary", key="cfg_save_intake"):
+            _save_settings(
+                {
+                    "INTAKE_MAX_PER_RUN": int(per_run),
+                    "INTAKE_MAX_PER_SOURCE": int(per_source),
+                },
+                "Intake limits",
             )
 
 

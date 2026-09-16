@@ -1,3 +1,4 @@
+from .companies_route import companies_router
 from .cv_route import cv_router
 from .jobs_route import jobs_router
 from .params_route import params_router
@@ -10,6 +11,7 @@ from .settings_route import settings_router
 from .sources_route import sources_router
 
 __all__ = [
+    "companies_router",
     "cv_router",
     "jobs_router",
     "params_router",

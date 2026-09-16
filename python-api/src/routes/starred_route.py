@@ -1,11 +1,13 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlmodel import Session
 
 from ..database import get_session
+from ..database.repositories.companies import CompanyRepository
 from ..database.repositories.starred_companies import StarredCompanyRepository
 from ..schemas.starred import StarredCompanyCreate, StarredCompanyUpdate, StarredCompanyToggle
+from .companies_route import UNCHECKED, _detect_in_background
 
 starred_router = APIRouter(prefix="/api/starred", tags=["starred"])
 
@@ -28,7 +30,11 @@ def check_starred(company: str, session: Session = Depends(get_session)):
 
 
 @starred_router.post("", status_code=201)
-def add_starred(body: StarredCompanyCreate, session: Session = Depends(get_session)):
+def add_starred(
+    body: StarredCompanyCreate,
+    background: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
     repo = StarredCompanyRepository(session)
     if repo.is_starred(body.company_name):
         raise HTTPException(status_code=409, detail="Company already starred")
@@ -39,6 +45,11 @@ def add_starred(body: StarredCompanyCreate, session: Session = Depends(get_sessi
     )
     session.commit()
     session.refresh(entry)
+    # A careers URL is only useful once we know what is behind it, and this is where one
+    # arrives. Detection fetches a third-party page, so it runs after the response rather
+    # than inside it: the row saves as `unknown` and the verdict lands a moment later.
+    if entry.careers_url:
+        background.add_task(_detect_in_background, entry.id)
     return entry.model_dump()
 
 
@@ -51,11 +62,28 @@ def delete_starred(id: int, session: Session = Depends(get_session)):
 
 
 @starred_router.patch("/{id}")
-def update_starred(id: int, body: StarredCompanyUpdate, session: Session = Depends(get_session)):
+def update_starred(
+    id: int,
+    body: StarredCompanyUpdate,
+    background: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    repo = CompanyRepository(session)
+    company = repo.get(id)
+    url_changed = company is not None and (body.careers_url or None) != company.careers_url
+
     updated = StarredCompanyRepository(session).update(id, body.careers_url, body.notes)
     if not updated:
         raise HTTPException(status_code=404, detail="Starred company not found")
+
+    if url_changed:
+        # The verdict belongs to the URL. Without this reset a company keeps its old
+        # board token and goes on reporting healthy jobs from the previous employer.
+        repo.set_detection(company, dict(UNCHECKED))
     session.commit()
+
+    if url_changed and company.careers_url:
+        background.add_task(_detect_in_background, id)
     return {"status": "ok"}
 
 

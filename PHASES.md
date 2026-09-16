@@ -181,46 +181,90 @@ Everything downstream of `pending_jobs` is source-agnostic, so after Phase 1 a s
 exactly: one module implementing the `Source` protocol, one `website` value, one row in
 `sources`. No workflow, no id, no redeploy.
 
-### Be honest about which are realistic
+### Which sources are real — verified, not assumed
 
-**Easy and reliable — do these first**
+Every row below was called live on 2026-09-16 with a plain polite `curl`, no auth, no browser
+spoofing, no challenge solving. The survey with response shapes and the tokens used is at
+`.scratch/phase-2-sources/endpoint-survey.md`. Endpoint shapes drift, so re-verify before
+building rather than trusting this table a year from now.
 
-| Source | Shape |
+**Ship these — one request, description already in the list response**
+
+| Source | Endpoint | Company field | Note |
+|---|---|---|---|
+| Himalayas | `himalayas.app/jobs/api?limit=&cursor=` | `companyName` | 102,388 jobs, cursor paging, `applicationLink` |
+| Greenhouse | `boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true` | board label | 647 jobs for one token; `content` is escaped HTML |
+| Ashby | `api.ashbyhq.com/posting-api/job-board/{token}` | board label | `descriptionPlain` — no HTML cleanup at all |
+| We Work Remotely | `weworkremotely.com/remote-jobs.rss` + category feeds | inside `title` | split `Company: Role` apart |
+| Lever | `api.lever.co/v0/postings/{token}?mode=json` | board label | body is `descriptionPlain` + `lists[]` + `additionalPlain`, all three |
+| Recruitee | `{company}.recruitee.com/api/offers/` | `company_name` | also carries `requirements` |
+| Workable | `apply.workable.com/api/v1/widget/accounts/{token}?details=true` | account | **not** `/api/v3/...`, which is POST-only and carries no description |
+
+**Below the line — all N+1, wrong trade while `SCORING_DELAY_SECONDS` is the bottleneck**
+
+SmartRecruiters (list carries neither description nor apply URL, only an API ref), BambooHR,
+Breezy, Rippling. Personio answers on both `.jobs.personio.de` and `.jobs.personio.com` but is
+XML and mostly German-language boards. Hacker News "Who is Hiring" is one Algolia request for a
+month of roles, but every field has to come out of free prose with regex — worth a spike of its
+own, not part of this phase.
+
+**Out, with the reason**
+
+| Source | Why |
 |---|---|
-| Greenhouse / Lever / Ashby | per-company public board JSON, full descriptions, never shadow-ban |
-| We Work Remotely | RSS feed, no auth, no rate limit |
-| Remotive | public JSON API |
-| Hacker News "Who is Hiring" | Algolia API over the monthly thread; very high signal |
+| Indeed | `robots.txt` disallows most country job paths; a plain `curl` of the search page returns **403**; the old RSS endpoint returns **404**; the Publisher API is retired. What remains needs an approved partner account |
+| Glassdoor | Same posture, and its value is reviews and salary rather than listings you cannot get elsewhere |
+| FlexJobs | Paid subscription. Not probed at all — a paywall is a decision, not an obstacle |
+| Wellfound | Turnstile challenge; `robots.txt` disallows `/search` |
+| Hiring Cafe | Search API returns 401 without credentials; robots denies the job paths |
+| Remote.co | Zero bytes over three attempts, apparent edge block; robots stance never retrieved |
+| Remotive | **Skipped** (decision 8). Not refused — constrained: robots disallows `/api/*` and the ToS asks for **≤4 requests/day**. A daily rate limiter for one source whose catalogue overlaps Himalayas is the wrong first facility |
 
-**Hard, and likely to stay broken**
+LinkedIn is already the most fragile source in the stack. Nothing in the "out" column multiplies
+coverage enough to justify multiplying that fragility.
 
-- **Indeed** — killed its public API and sits behind aggressive bot detection. Reliable
-  scraping needs a headless browser and rotating egress. Out of proportion to this project.
-- **Glassdoor** — same posture, and its real value is reviews and salary rather than
-  listings you cannot get elsewhere.
+### Decisions settled
 
-Recommend dropping both from scope, or attempting them only after everything above ships.
-LinkedIn is already the most fragile source; two more of the same kind multiply maintenance
-without multiplying coverage.
+Ten questions were worked through before any of this was written down. They are binding; a
+deviation needs a new decision, not a judgement call mid-implementation.
 
-### The ATS boards are the phase
+| # | Decision | Why |
+|---|---|---|
+| 1 | **A company is the unit, not an ATS.** `sources` rows are feeds plus one `companies` row. Greenhouse/Lever/Ashby are *fetch methods* on a company, never toggles of their own | See `docs/adr/0001`. Per-ATS sources walk the same company twice and split its health across two rows |
+| 2 | A company row is walked **without** the relevance filter, but still under the cap | Starring a company is explicit intent; filtering it out is how the feature comes to look broken |
+| 3 | On a duplicate, **first wins**. Companies and boards are walked before feeds so the better copy usually arrives first | Ranked replacement needs a rank column, fingerprints on two more tables, and delete-and-reinsert inside intake |
+| 4 | One **`INTAKE_MAX_PER_RUN` budget** with a per-source ceiling under it. Defaults 200 and 80 | The global number is the one that maps to "how long will tonight take" |
+| 5 | The careers-page sniff runs **in the background**, not in the save request | It fetches a third-party page; saving a URL must not be as slow as the slowest careers page on the internet |
+| 6 | The generic ladder stops at **deterministic rungs**. No LLM on a careers page | An invented job costs a scoring call, a cover letter and a slot in the table, and looks exactly like a real one |
+| 7 | First cut: feeds **Himalayas + We Work Remotely**, fetch methods **Greenhouse, Lever, Ashby**. Recruitee and Workable follow | Biggest coverage per module, and the three ATS parsers share one shape |
+| 8 | **Remotive is skipped** | robots disallows `/api/*`, ToS asks ≤4 requests/day, catalogue overlaps Himalayas. A daily rate limiter for one source is the wrong first facility |
+| 9 | A company row can exist **unstarred** | "Scrape this board" and "I want to work here" are different facts, and Phase 3 reads the star as a scoring signal. One boolean now beats a retrofit later |
+| 10 | The table stays `starred_companies`; the concept is **Companies** | A rename touches migrations, repositories, routes and the dashboard for no user-visible gain |
 
-Greenhouse, Lever and Ashby are the strongest addition in the whole plan, and the reason is
-not coverage — it is shape. They are documented JSON APIs with no auth, no rate limit worth
-the name, and no bot detection, serving the companies you actually want *first*, because the
-ATS is where the posting is created before it is syndicated anywhere else.
+### Fetch methods: the ATS boards
 
-The decisive detail: **Greenhouse returns full descriptions in the list call.** One request
-per company for every open role and its body. LinkedIn costs one request per search page
-plus one per job page plus backoff, and can ban the egress IP; twenty-five ATS boards is
-twenty-five requests and cannot.
+Greenhouse, Lever and Ashby are the strongest addition in the whole plan, and the reason is not
+coverage — it is shape. They are documented JSON APIs with no auth, no rate limit worth the name
+and no bot detection, serving the companies you actually want *first*, because the ATS is where
+the posting is created before it is syndicated anywhere else.
+
+The decisive detail: **the list call carries the full description.** One request per company for
+every open role and its body. LinkedIn costs one request per search page plus one per job page
+plus backoff, and can ban the egress IP; twenty-five ATS boards is twenty-five requests and
+cannot.
+
+None of them is a source. There is no public cross-company endpoint for any ATS — the only call
+is per board token — so "scrape Greenhouse" is not a thing that can exist. What exists is "scrape
+these boards", and the list of boards is the company list. Discovery of companies you have not
+thought of is what the feeds are for, and those feeds are largely syndicating these same ATS
+postings.
 
 **Endpoints**
 
 | ATS | URL | List path | Description field |
 |---|---|---|---|
 | Greenhouse | `https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true` | `jobs[]` | `content` — HTML, entity-escaped |
-| Lever | `https://api.lever.co/v0/postings/{token}?mode=json&limit=100` | top-level array | `descriptionPlain` plus `lists[]` |
+| Lever | `https://api.lever.co/v0/postings/{token}?mode=json&limit=100` | top-level array | `descriptionPlain` + `lists[]` + `additionalPlain`, all three |
 | Ashby | `https://api.ashbyhq.com/posting-api/job-board/{token}` | `jobPostingGroups[].jobPostings[]` | `descriptionPlain` |
 
 **Field mapping to `PendingJobRequest`**
@@ -229,137 +273,216 @@ twenty-five requests and cannot.
 |---|---|---|---|
 | `id` | `greenhouse_{token}_{id}` | `lever_{token}_{id}` | `ashby_{token}_{id}` |
 | `title` | `title` | `text` | `title` |
-| `company` | board label | board label | board label |
+| `company` | company row | company row | company row |
 | `location` | `location.name` | `categories.location` | `jobLocations[].name`, joined |
 | `applylink` | `absolute_url` | `hostedUrl` | `https://jobs.ashbyhq.com/{token}/{id}` |
-| `description` | `content` | `descriptionPlain` | `descriptionPlain` |
+| `description` | `content` | the three keys, concatenated | `descriptionPlain` |
 | `website` | `Greenhouse` | `Lever` | `Ashby` |
 
-The company name comes from the stored board label, not from the payload — Greenhouse does
-not reliably carry one, and Ashby's job URL has to be built from the board token. Deriving
-either from a display name is how you get `jobs.ashbyhq.com/scaleai` for "Scale AI".
+The company name comes from the stored company row, never from the payload — Greenhouse does not
+reliably carry one, Lever and Ashby carry none at all, and Ashby's job URL has to be built from
+the board token. Deriving either from a display name is how you get `jobs.ashbyhq.com/scaleai`
+for "Scale AI".
 
-**Implementation.** One module, `scrapers/ats.py`, holding three parsers and a shared fetch
-that loops over the board rows. Register three entries in `SOURCES` — `greenhouse`, `lever`,
-`ashby` — each filtering the board list by its own ATS, so Phase 1's toggle and the
-per-source health readout work per ATS rather than lumping all three together.
+**Implementation.** One module, `scrapers/companies.py`, holding a parser per fetch method and
+one walk over the company rows. A single `SOURCES` entry — `companies` — so Phase 1's toggle
+turns the whole walk on or off, and the per-company readout carries the detail that a per-ATS
+toggle would have carried.
 
-**Board tokens are a dashboard feature.** They live on `starred_companies` rather than in a
-table of their own — see "Starred companies as a source" below, which is the same list under
-another name. The Companies tab is where they are edited, beside starred and blocked
-companies. Finding a token is reading it out of the careers URL — `jobs.lever.co/stripe` →
-`stripe` — which is a thing a user can do and a thing that will need doing forever, so it
-belongs in the UI rather than in a params file.
+**Validate by parsing, never by status code.** BambooHR answers an unknown token with **HTTP 200
+and its own marketing page** rather than a 404, and it will not be the only one. A board is
+healthy when its response parses as the expected shape and yields rows; anything else is a dead
+token, named on the company row and in run history.
 
-**Isolate per board, not just per source.** The pipeline isolates failures per *source*, and
-an ATS source is twenty-five boards behind one entry. A 404 on one dead token must not cost
-the other twenty-four; wrap each board and emit a source-level event naming the token that
-failed. Tokens rot: `~/git/Job-Tracker-main` ships a 25-company list of exactly this shape
-and several of its slugs are already dead. Copy the pattern, verify every token, and surface
-a board returning zero jobs in run history — silent zero is the failure mode here, not an
-exception.
+**Isolate per company, not just per source.** The pipeline isolates failures per *source*, and
+this source is twenty-five boards behind one entry. A 404 on one dead token must not cost the
+other twenty-four: wrap each company and emit an event naming the one that failed. Tokens rot —
+`~/git/Job-Tracker-main` ships a 25-company list of exactly this shape and several of its slugs
+are already dead. Ship a starter list as an importable example so the feature demonstrates itself
+before the user has added anything, and verify every token in it.
 
-**Interrupts, same contract as the other two scrapers.** Every `get()` takes
-`interrupt=ctx.interrupt` and raises `PauseRequested`; collect into a list declared outside
-the loop and return what was gathered, because `fetch()` only hands its jobs to the pipeline
-on return and resume does not re-scrape. `linkedin.py:162` carries the comment explaining why
-letting `PauseRequested` escape bins the whole scrape.
+**Interrupts, same contract as the other scrapers.** Every `get()` takes `interrupt=ctx.interrupt`
+and raises `PauseRequested`; collect into a list declared outside the loop and return what was
+gathered, because `fetch()` only hands its jobs to the pipeline on return and resume does not
+re-scrape. `linkedin.py:162` carries the comment explaining why letting `PauseRequested` escape
+bins the whole scrape.
 
-**Reuse `clean_description()`.** Greenhouse `content` is entity-escaped HTML, and
-`remoteok.py` already strips tags *before* unescaping, which is the ordering that stops
-`&lt;div&gt;` from becoming a real tag and eating the text after it. Promote that function to
-`scrapers/base.py` rather than writing a second one.
+**Do not reuse `clean_description()` unmodified — the ordering is wrong here.** It strips tags
+*then* unescapes, which is right for RemoteOK. Greenhouse `content` arrives entity-escaped
+(`&lt;h2&gt;&lt;strong&gt;Who we are&lt;/strong&gt;&lt;/h2&gt;`), so that order finds no real
+tags, unescapes afterwards, and leaves literal `<h2>` markup in the description — verified
+against the live payload:
 
-**Expect a volume problem.** Twenty-five boards is thousands of open roles, and the scoring
-loop runs at `SCORING_DELAY_SECONDS` per job — the first ATS run queues far more than a night
-can drain, and every one of those jobs costs an LLM call. Either seed the board list small
-and grow it, or gate intake on a cheap deterministic title check before `save_pending_job`.
-This is a consequence of the source, not a separate feature: it has to be decided in this
-phase.
+```
+strip-then-unescape → '<h2><strong>Who we are </strong></h2>\n<h3>About Stripe...'
+unescape-then-strip → 'Who we are \nAbout Stripe\nStripe is a financial...'
+```
 
-### Starred companies as a source
+Every surviving tag is paid for twice, in the scoring prompt and in the cover letter prompt.
+Promote the helper to `scrapers/base.py` with the order as a parameter — one function, two
+orderings, chosen per source. Ashby needs neither: `descriptionPlain` is already plain.
 
-Starring is a bookmark today: `starred_companies` already carries `careers_url`, and nothing
-reads it. Turn it into a source — the user has already told you which companies they want,
-and the careers page is where those companies post first.
+### The intake gate is the phase's real constraint
 
-**Two controls per company, independent of each other.** In the Companies tab, each starred
-row gets:
+Volume is not a side effect of these sources, it *is* them. Himalayas alone offers 102,388 jobs;
+twenty-five ATS boards are thousands more, because a company posts its warehouse and sales roles
+on the same board as its engineering ones. At `SCORING_DELAY_SECONDS` per job every one of those
+costs a wait and an LLM call, so an ungated first run queues more than a year of nights and fills
+the jobs table with roles the user would never have opened.
+
+**A budget, then a ceiling.** `INTAKE_MAX_PER_RUN` (default 200) is the number of jobs a run may
+queue in total, and `INTAKE_MAX_PER_SOURCE` (default 80) stops one feed eating the whole budget.
+Both are Phase 1 settings, edited in Settings → Sources. The budget is the knob that matters
+because it is the one that maps to wall-clock: show the arithmetic live beside the field —
+*"200 jobs × 20s ≈ 67 minutes"* — so changing either number shows its cost rather than making the
+user do the multiplication.
+
+**Feeds are filtered; companies are not.** A feed carries the whole world, so nothing from one
+reaches `pending_jobs` without passing a cheap deterministic relevance check: the scoring
+`remoteok.py` already does — `TITLE_BONUS` / `SKILL_POINTS` / `MIN_SCORE` against the CV keywords
+the run already extracted. Note that filter currently reads RemoteOK's own item shape, so
+promoting it to `scrapers/base.py` as `prefilter(jobs, keywords)` is a rewrite against
+`PendingJobRequest`, not a move. No LLM anywhere in it: the whole point is that it costs nothing.
+
+A company row is different. The user named that company, so relevance is already established and
+a sideways role their CV keywords do not match is exactly the job they would want to see. Company
+jobs skip the filter — and stay under the ceiling, because an unfiltered board is still 600 roles
+including the warehouse ones.
+
+**Where it runs.** In the pipeline, between `fetch()` and `save_pending_job()`, never inside
+intake. `save_pending_job()` is the single write path and is also used by
+`POST /api/jobs/pending`, where a job the user added by hand must never be silently dropped for
+looking irrelevant. Sources stay free of persistence, which is the existing contract.
+
+**Order matters, because first wins.** Companies and boards are walked before feeds inside a run,
+so when the same role exists in both places the ATS copy is the one that lands: full description,
+real application link, no syndication truncation.
+
+**Emit what was dropped.** Each source reports offered / kept / dropped, and the run reports
+budget used. A cap set too tight and a dead source look identical until those numbers sit side by
+side.
+
+**A high-volume feed is also a paging decision.** Himalayas pages by cursor and will happily serve
+everything; the source stops at the first page that yields nothing the filter keeps, or at its
+ceiling, whichever comes first. Do not walk 102k rows to discard 101,950 of them.
+
+### Companies as a source
+
+`starred_companies` already carries `careers_url` and nothing reads it. Turn the company list into
+the one source that fetches per company — whether by ATS API or by reading the page.
+
+**Two independent facts per row, and they are not the same fact.**
+
+| Column | Means | Reads |
+|---|---|---|
+| `starred` | *I want to work here* | Jobs filters today; the score in Phase 3 |
+| `in_workflow` | *Scrape this company every run* | This source |
+
+A row can be scraped without being starred — a competitor's board you watch but do not want
+floating to the top of your list — and starred without being scraped, which is every row that
+exists today. Existing rows migrate as `starred = true, in_workflow = false`, so nothing starts
+scraping because of an upgrade.
+
+**Two controls per row in the Companies tab, also independent.**
 
 | Control | Writes | Effect |
 |---|---|---|
-| **In workflow** switch | `starred_companies.in_workflow` | the nightly run scrapes this company's careers page |
-| **Scrape now** button | nothing persistent | fetches that one page immediately and queues what it finds |
+| **In workflow** switch | `in_workflow` | the nightly run fetches this company |
+| **Scrape now** button | nothing persistent | fetches this one company immediately and queues what it finds |
 
-Neither implies the other. Scrape now works on a company with the switch off — that is the
-point of it, trying a careers URL before committing it to every run — and a company in the
-workflow is still scrapeable on demand between runs.
+Neither implies the other. Scrape now works with the switch off — that is the point of it, trying
+a careers URL before committing it to every run — and a company in the workflow is still
+scrapeable on demand between runs. The `companies` row in `sources` gates the nightly walk;
+`in_workflow` picks the rows inside it; **Scrape now bypasses both**, because it is an explicit
+action on a named company.
 
-**The global switch is the Phase 1 source row, not a new key.** Register `starred` in
-`SOURCES` and seed a `sources` row for it; Settings → Sources then already carries the
-enable/disable switch for starred scraping as a whole, with the same shape as LinkedIn and
-RemoteOK. Adding a second `STARRED_*` setting would mean two switches that can disagree.
-Precedence is the obvious one: the source row gates the workflow walk, `in_workflow` picks
-the rows inside it, and **Scrape now bypasses both** because it is an explicit user action on
-a named company.
+**The row carries its own verdict.** Alongside `careers_url`: `in_workflow` (default false),
+`starred` (default true), `ats` and `ats_token` (detected, nullable), `fetch_method`, and
+`last_scraped_at` / `last_job_count`. `fetch_method` is what the row renders and what the
+in-workflow switch reads before it lets itself be turned on:
 
-**Fold the board list into `starred_companies`.** This replaces the separate `job_boards`
-table sketched above: one company list, one careers URL, one place in the UI. Add
-`in_workflow` (default false), `ats` and `ats_token` (detected, nullable), `last_scraped_at`
-and `last_job_count`. A company is starred, has a careers URL, and is optionally in the
-workflow — three facts about one row, not two tables to keep in sync.
+| `fetch_method` | Row says | Switch |
+|---|---|---|
+| `unknown` | "Checking this page…" | unavailable |
+| `ats` | "Greenhouse board detected" | available |
+| `page` | "Reading the page directly — breaks when they redesign" | available |
+| `unreadable` | "We cannot read jobs from this page", plus the reason | **refuses to turn on** |
 
-**Detect the ATS from the URL; fall back to generic.** Most careers pages are an ATS board
-wearing a company domain, and that is where the reliability is:
+A company that silently returns zero every night while looking healthy is the exact failure this
+phase exists to prevent, and a switch that can be turned on for `unreadable` is a switch that
+lies.
 
-| URL shape | Path |
+**Detection is a sniff, and it runs in the background.** Saving a careers URL must not block on
+fetching a third-party page, so the write returns immediately with `fetch_method = "unknown"` and
+the sniff lands a moment later. Two passes, cheapest first. URL shape catches the companies that
+link straight at their board:
+
+| URL shape | Resolves to |
 |---|---|
-| `boards.greenhouse.io/{token}`, `job-boards.greenhouse.io/{token}` | Greenhouse parser above |
-| `jobs.lever.co/{token}` | Lever parser above |
-| `jobs.ashbyhq.com/{token}` | Ashby parser above |
-| anything else | generic fetch, best effort |
+| `boards.greenhouse.io/{token}`, `job-boards.greenhouse.io/{token}` | Greenhouse |
+| `jobs.lever.co/{token}` | Lever |
+| `jobs.ashbyhq.com/{token}` | Ashby |
+| `{company}.recruitee.com`, `apply.workable.com/{token}` | Recruitee / Workable, once those parsers land |
 
-Detection runs on save and caches `ats` + `ats_token` on the row, so the Companies tab can
-say *"Greenhouse board detected"* against a pasted URL — which is the difference between a
-user trusting the field and a user guessing at it. When it resolves to an ATS, the scrape is
-the phase's own parser and inherits its reliability for free.
+When that fails, fetch the page once and look for what is behind it — `careers.acme.com` is very
+often a Greenhouse board wearing a company domain:
 
-**The generic path is best-effort and must be labelled as such.** An arbitrary careers page
-is React-rendered as often as not, and a list page rarely carries descriptions, so a body
-costs a second request per role. Keep it deterministic first — look for a JSON-LD
-`JobPosting` block, then an obvious listing structure — and only then hand the stripped page
-to the LLM for extraction. Cache by content hash so an unchanged page costs nothing on the
-next run; that is what stops a nightly walk over thirty companies from becoming thirty LLM
-calls a night for no new jobs. A page that yields zero jobs twice running is surfaced in the
-row, not silently retried forever.
+| Fingerprint in the HTML | What it proves |
+|---|---|
+| link or iframe to a known board host | ATS behind a custom domain — the token is in that URL |
+| `grnhse_app`, the Lever widget, Ashby `embed.js` | board embedded in the page |
+| `<script type="application/ld+json">` with `@type: JobPosting` | no ATS, but structured job data to parse |
 
-**One fetch function, two callers.** The `Source` protocol takes a `RunContext`, and Scrape
-now has no run. Write the unit as `fetch_company(company, interrupt=None) -> list[PendingJobRequest]`
-and let the `starred` source wrap it in the per-company loop while the endpoint calls it
-directly. Same isolation rule as the ATS boards: one company raising costs that company only.
+A hit upgrades the company from page-reading to a one-request, full-description fetch, so the
+sniff pays for itself the first time it fires.
 
-**`POST /api/starred/{id}/scrape`** runs `fetch_company` and writes through
-`save_pending_job()`, so the blocklist, `seen_jobs` and the fingerprint check all apply
-unchanged — including the case where a company is starred *and* blocked, which intake
-resolves by blocking. It returns the counts it got back:
-`{"queued": n, "already_seen": n, "blocked": n}`. It opens no `workflow_runs` row: it is not
-a run, it writes no run state, and the pipeline stays the only writer of that table.
+**The page path stops at deterministic rungs.** JSON-LD first, then an obvious listing structure,
+then `unreadable`. The page is **never** handed to an LLM for extraction: that rung costs a call
+per page per run and is the only one that can invent a job that was never posted — which then
+costs a scoring call, a cover letter and a slot in the table, and looks exactly like a real job.
+Cache by content hash so an unchanged page costs nothing on the next run. A page that yields zero
+twice running moves to `unreadable` and turns its own switch off rather than being retried
+forever.
 
-**Be honest in the UI about what "now" means.** Scrape now fills `pending_jobs`; the jobs
-table is written by the scorer, so nothing appears under Jobs until a run drains the queue.
-Say "queued 7 jobs — they are scored on the next run" and put the trigger next to it, rather
-than letting the button look broken for a night.
+Worked example, measured rather than assumed — `https://www.google.com/about/careers/applications/`
+returns 1.13 MB of HTML with **no** board-host link, **no** embed script, **no** parseable JSON-LD
+and no job text at all: the listings render client-side at `/jobs/results/`. Google runs its own
+in-house ATS, which is a normal thing for a large employer to do, so the answer is to say
+`unreadable` and move on. The company stays starred, still filters and still scores; its roles
+arrive through Himalayas or LinkedIn instead.
 
-**Identity.** ATS-resolved rows use the ATS id scheme above, so the same posting reached
-through a starred company and through a board token is one job. The generic path has no
-stable id: use `starred_{company}_{sha1(applylink)}`, and lean on the fingerprint for the
-rest — a careers page that renumbers its links is exactly the case fingerprinting exists for.
+**Check `robots.txt` before any page fetch, and cache the verdict per host.** It is part of the
+`unreadable` verdict: Google's disallows the paginated results outright —
 
-**Interrupts and volume, same rules as everywhere else.** Every `get()` takes
-`interrupt=ctx.interrupt`, collects into a list declared outside the loop, and returns what
-it gathered. Starred companies are a small list by construction, which is what makes them
-safe to walk nightly — if the list grows past a few dozen, the intake gate decided above
-applies here too.
+```
+Disallow: /about/careers/applications/jobs/results?page=
+```
+
+— so even a page that could be read is one we are asked not to walk. A disallowed listing path is
+`unreadable`, stated as such on the row, not a thing to engineer around. This does not apply to
+the ATS APIs, which are documented public endpoints meant to be called.
+
+**One fetch function, two callers.** The `Source` protocol takes a `RunContext` and Scrape now has
+no run, so write the unit as
+`fetch_company(company, interrupt=None) -> list[PendingJobRequest]`. The `companies` source wraps
+it in the per-row loop; the endpoint calls it directly.
+
+**`POST /api/companies/{id}/scrape`** runs `fetch_company` and writes through
+`save_pending_job()`, so the blocklist, `seen_jobs` and the fingerprint check all apply unchanged
+— including a company that is both in the list and blocked, which intake resolves by blocking. It
+returns the counts it got back: `{"queued": n, "already_seen": n, "blocked": n}`. It opens no
+`workflow_runs` row: it is not a run, it writes no run state, and the pipeline stays the only
+writer of that table.
+
+**Be honest about what "now" means.** Scrape now fills `pending_jobs`; the jobs table is written
+by the scorer, so nothing appears under Jobs until a run drains the queue. Say "queued 7 jobs —
+they are scored on the next run" and put the trigger next to it, rather than letting the button
+look broken for a night.
+
+**Identity.** An ATS-resolved row uses the ATS id scheme above, so the same posting reached
+through this source and through a board token elsewhere is one job. The page path has no stable
+id: use `company_{name}_{sha1(applylink)}` and lean on the fingerprint for the rest — a careers
+page that renumbers its links is exactly what fingerprinting is for.
 
 ### Cross-source duplicates
 
@@ -390,34 +513,59 @@ normalised one. The blocklist gets this for free and needs it — it is exact-ma
 `Acme` and `Acme Inc.` are two different companies and blocking one leaves the other
 arriving nightly.
 
-**Prefer the ATS row.** When the same fingerprint arrives from two sources, the one that
-survives should be the ATS copy: its description is the original rather than a truncated
-syndication, and its `applylink` is the application form instead of a redirect — which is
-what `ROADMAP.md:122`'s ATS form POST would later build on. That means source preference is
-a ranked list, and a later-arriving preferred source must be allowed to *replace* a queued
-duplicate rather than be dropped by it.
+**First wins, and the order is the design.** The ATS copy is the one worth keeping — its
+description is the original rather than a truncated syndication, and its `applylink` is the
+application form instead of a redirect, which is what `ROADMAP.md:122`'s ATS form POST would
+later build on. Rather than ranking sources and letting a later arrival *replace* a queued
+duplicate — which needs a rank column, fingerprints on two more tables, and delete-and-reinsert
+inside a function that already commits — walk companies and boards **before** feeds inside a run.
+The good copy then arrives first and the feed copy is the one dropped. Revisit only if truncated
+syndicated descriptions actually show up in the table; the per-source health numbers are what
+would show it.
 
 **Accept one collision.** Two genuinely different requisitions with the same title at the
 same company and location collapse into one. That is the right trade: a duplicated card is a
 daily annoyance across every source, a lost near-identical req is rare and costs one posting
 you can still reach from the company's board.
 
-**Backfill.** `seen_jobs` and `filtered_jobs` already hold rows without fingerprints, so the
-migration computes them for existing rows. Without that, every pre-existing job stays
-invisible to the new check and the first run after the upgrade re-queues its duplicates
-anyway.
+**Backfill, and the part of it that is impossible.** `filtered_jobs` and `pending_jobs` carry
+company, title and location, so the migration computes their fingerprints directly. **`seen_jobs`
+cannot be backfilled**: it is `(id, seen_at)` and nothing else, so a job that was scored and
+drained, or blocked, leaves no material to fingerprint from. The migration therefore fills
+`seen_jobs.fingerprint` only for ids that still exist in `filtered_jobs` or `pending_jobs`, and
+leaves the rest null — a null fingerprint never matches, so those rows keep working on `id` alone
+exactly as they do today. The consequence is bounded and worth stating plainly: for jobs already
+scored and drained before the upgrade, a duplicate from a newly added source can still arrive
+once. It costs one scoring call each, one time.
 
 ### Per-source health
 
 With eight sources a silently dead one is invisible. `run_events` already records per-source
-counts — surface them beside run history, with the per-board detail the ATS sources emit.
+counts — surface them beside run history, with the per-board detail the ATS sources emit, and the
+offered / kept / dropped triple the intake gate produces. A source whose kept count is zero while
+its offered count is healthy is a filter that is too tight, which looks identical to a dead source
+until the numbers are side by side.
+
+The `companies` source reports per company rather than per source: fetch method, last count, last
+scraped. That readout is what a per-ATS toggle would have bought and more, which is why decision 1
+could drop the per-ATS rows without losing anything. A row that has moved to `unreadable` says so
+there rather than contributing a silent zero to the source total.
 
 ### Done when
 
-Five or more sources are toggleable, board tokens are editable from the dashboard, a starred
-company with a careers URL can be put in the workflow or scraped on demand independently, the
-same role from two sources arrives once, a dead source or a dead board is visible in run
-history rather than silent, and adding the sixth source is a new module plus a row.
+Himalayas and We Work Remotely are feeds you can switch off, the company list fetches Greenhouse,
+Lever and Ashby boards by detection rather than by configuration, a company with a careers URL can
+be put in the workflow or scraped on demand independently of each other and of the star, the same
+role from two sources arrives once, a dead feed or a dead board is visible in run history rather
+than silent, and adding the next feed is a new module plus a row.
+
+And the gate holds: a run against a 102k-job feed queues tens of jobs rather than thousands, the
+run history says how many each source offered, kept and dropped, and no job reaches the scorer
+that a free title-and-skills check would have rejected.
+
+And nothing lies about what it can do: a careers page we cannot read says so when it is pasted,
+its switch refuses to turn on, and `robots.txt` is checked before any page fetch — so a company in
+the workflow is a company that actually produces jobs.
 
 ---
 
@@ -587,9 +735,11 @@ Phase 4 depends on nothing and can be deferred indefinitely.
 - **Secret handling** — Phase 1 introduces the masked read path and the `redact_secrets()`
   pattern for webhook-shaped credentials. Every later phase that adds one (a Freelancer.com
   API key in Phase 4) reuses it rather than inventing a second convention.
-- **Queue volume** — Phase 1 makes `SCORING_DELAY_SECONDS` editable, Phase 2 multiplies
-  intake by an order of magnitude. They interact: decide the intake gate in Phase 2 rather
-  than discovering it on the first ATS run.
+- **Queue volume** — Phase 1 makes `SCORING_DELAY_SECONDS` editable, Phase 2 multiplies intake
+  by orders of magnitude. The answer is the intake gate: `INTAKE_MAX_PER_RUN` (200) over
+  `INTAKE_MAX_PER_SOURCE` (80), with a deterministic `prefilter()` on feeds and none on companies,
+  in the pipeline between fetch and save. Decided in Phase 2, not discovered on the first run
+  against a feed with six figures of jobs in it.
 - **`run_events`** — already built, relied on by Phase 2's per-source and per-board health
   and Phase 3's measurement chart. Extend the schema, do not route around it:
   `RunContext.emit()` stays the only reporting path.

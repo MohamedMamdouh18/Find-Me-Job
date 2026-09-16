@@ -758,6 +758,13 @@ mark.kw-hit {
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+/* The company fetch verdict. Colour carries tone, never meaning: the sentence says
+   what happened, so a reader who cannot separate these still reads the row. */
+.fetch-good { color: #2f7d5d; }
+.fetch-warn { color: #8a6d1f; }
+.fetch-bad  { color: #a33a3a; }
+.fetch-idle { color: #898781; }
 </style>
 """
 
