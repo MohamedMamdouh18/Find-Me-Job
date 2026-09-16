@@ -10,11 +10,11 @@ named in a chip you can click off.
 
 import streamlit as st
 
+import library
 from api import get_filter_options
 from components.ui import list_toolbar
 from constants import (
     AI_STATUSES,
-    MATCH_CUTOFF,
     STRONG_SCORE,
     USER_STATUSES,
     USER_STATUS_LABELS,
@@ -38,18 +38,23 @@ VIEW_COUNT_KEYS = {
     VIEW_NEW: "new",
     VIEW_EASY: "easy_apply",
 }
-VIEW_HELP = {
-    VIEW_ALL: "Every scored job, nothing hidden",
-    VIEW_MATCHED: f"The AI scored these {MATCH_CUTOFF} or above",
-    VIEW_STRONG: f"Scored {STRONG_SCORE} or above",
-    VIEW_NEW: "Scored, not yet moved out of New",
-    VIEW_EASY: "LinkedIn Easy Apply postings",
-    VIEW_STARRED: "Jobs at companies you starred",
-}
+# Functions rather than dicts: the cutoff is user-set, so anything derived from it
+# has to be built per run instead of frozen at import.
+def view_help() -> dict:
+    return {
+        VIEW_ALL: "Every scored job, nothing hidden",
+        VIEW_MATCHED: f"The AI scored these {library.match_cutoff()} or above",
+        VIEW_STRONG: f"Scored {STRONG_SCORE} or above",
+        VIEW_NEW: "Scored, not yet moved out of New",
+        VIEW_EASY: "LinkedIn Easy Apply postings",
+        VIEW_STARRED: "Jobs at companies you starred",
+    }
 
-# The score floor and verdict a view owns, so a view can never disagree with the
-# controls in the popover.
-VIEW_SCORE_FLOOR = {VIEW_MATCHED: MATCH_CUTOFF, VIEW_STRONG: STRONG_SCORE}
+
+def view_score_floor() -> dict:
+    """The score floor a view owns, so a view can never disagree with the
+    controls in the popover."""
+    return {VIEW_MATCHED: library.match_cutoff(), VIEW_STRONG: STRONG_SCORE}
 
 SORT_OPTIONS = {
     "score_desc": ("Match score", "score", "desc"),
@@ -240,7 +245,7 @@ def render_jobs_filters(counts: dict) -> dict:
             label_visibility="collapsed",
             format_func=lambda v: _view_label(v, counts),
             on_change=_coerce_view,
-            help=VIEW_HELP.get(st.session_state.get("jobs_view") or VIEW_ALL),
+            help=view_help().get(st.session_state.get("jobs_view") or VIEW_ALL),
         )
     view = st.session_state.get("jobs_view") or VIEW_ALL
 
@@ -256,7 +261,7 @@ def render_jobs_filters(counts: dict) -> dict:
     _render_chips(chips, view, search.strip())
 
     low, high = advanced["score_range"]
-    low = max(low, VIEW_SCORE_FLOOR.get(view, 0))
+    low = max(low, view_score_floor().get(view, 0))
 
     return {
         "ai_status": _none_if_all(advanced["ai_status"]),
@@ -278,7 +283,7 @@ def render_jobs_filters(counts: dict) -> dict:
 def _render_advanced(options: dict, view: str) -> dict:
     list_toolbar("Refine")
 
-    floor = VIEW_SCORE_FLOOR.get(view)
+    floor = view_score_floor().get(view)
     score_range = st.slider(
         "Match score",
         0,
@@ -287,7 +292,7 @@ def _render_advanced(options: dict, view: str) -> dict:
         help=(
             f"The {view} view already sets a floor of {floor}."
             if floor
-            else f"Matched jobs are the ones scored {MATCH_CUTOFF} or above."
+            else f"Matched jobs are the ones scored {library.match_cutoff()} or above."
         ),
     )
 
@@ -308,7 +313,8 @@ def _render_advanced(options: dict, view: str) -> dict:
             ["all"] + AI_STATUSES,
             key="jobs_ai_status",
             format_func=lambda x: {"all": "Any verdict", "fit": "Matched", "not_fit": "Not a match"}[x],
-            help=f"The verdict is written at score {MATCH_CUTOFF}, so it moves with the slider.",
+            help=f"The verdict is written at score {library.match_cutoff()},"
+            " so it moves with the slider.",
         )
 
     c3, c4 = st.columns(2)

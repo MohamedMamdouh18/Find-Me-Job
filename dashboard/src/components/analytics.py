@@ -23,7 +23,6 @@ from constants import (
     AI_STATUS_LABELS,
     CHART_LAYOUT,
     HEATMAP_COLORSCALE,
-    MATCH_CUTOFF,
     SOURCE_COLORS,
     STRONG_SCORE,
     USER_STATUSES,
@@ -182,7 +181,8 @@ def _score_histogram(bins: list[dict], median: int) -> go.Figure:
 
     labels = [f"{b['start']}–{b['end']}" for b in bins]
     counts = [b["count"] for b in bins]
-    colors = [score_color(b["start"]) for b in bins]
+    cutoff = library.match_cutoff()
+    colors = [score_color(b["start"], cutoff) for b in bins]
 
     fig = go.Figure(
         data=[
@@ -200,13 +200,13 @@ def _score_histogram(bins: list[dict], median: int) -> go.Figure:
     peak = max(counts) or 1
     # Bins are categories, so a rule sits on the boundary between two of them:
     # a cutoff of 60 belongs between the 50–59 and 60–69 bars.
-    cutoff_x = MATCH_CUTOFF / 10 - 0.5
+    cutoff_x = cutoff / 10 - 0.5
     fig.add_shape(
         type="line", x0=cutoff_x, x1=cutoff_x, y0=0, y1=peak * 1.30,
         line=dict(color=INK_MUTED, width=1.5, dash="dot"),
     )
     fig.add_annotation(
-        x=cutoff_x, y=peak * 1.36, text=f"cutoff {MATCH_CUTOFF}", showarrow=False,
+        x=cutoff_x, y=peak * 1.36, text=f"cutoff {cutoff}", showarrow=False,
         font=dict(size=10, color=INK_MUTED), xanchor="center",
     )
     if median:
@@ -389,7 +389,7 @@ def _top_companies_bar(companies: list[dict], limit: int = 12) -> go.Figure:
     names = [c["company"] for c in rows]
     scores = [c.get("best_score") or 0 for c in rows]
     counts = [c["job_count"] for c in rows]
-    colors = [score_color(s) for s in scores]
+    colors = [score_color(s, library.match_cutoff()) for s in scores]
 
     fig = go.Figure(
         data=[
@@ -492,7 +492,7 @@ def _act(item: dict):
     if view == "Strong":
         apply_preset(VIEW_STRONG)
     elif view == "Below cutoff":
-        apply_preset(VIEW_ALL, score_range=(0, MATCH_CUTOFF - 1))
+        apply_preset(VIEW_ALL, score_range=(0, library.match_cutoff() - 1))
     elif view == "Matched":
         apply_preset(VIEW_MATCHED)
     goto(item["page"])
@@ -533,7 +533,7 @@ def render_analytics():
         f'<div class="chart-note">Median {counts["median_score"]}'
         f'<span class="mono-sep">·</span>{counts["strong"]} at or above {STRONG_SCORE}'
         f'<span class="mono-sep">·</span>{counts["below_cutoff"]} below your cutoff of '
-        f"{MATCH_CUTOFF}</div>",
+        f"{library.match_cutoff()}</div>",
         unsafe_allow_html=True,
     )
 

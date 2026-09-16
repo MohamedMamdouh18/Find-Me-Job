@@ -8,28 +8,32 @@ services:
     container_name: find-me-job-python-api
     restart: unless-stopped
     environment:
-      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
-      - DELETE_OLD_JOBS_DAYS=${DELETE_OLD_JOBS_DAYS}
-      # Schedule seeds. Once the dashboard writes app_settings, the table wins
-      # and these are ignored — they only fill an empty row on first boot.
+      # GENERIC_TIMEZONE is real configuration — the scheduler is built with it at
+      # startup. Everything below it is a first-boot seed for app_settings: once a
+      # row exists the table wins and these are ignored, so edit them in the
+      # dashboard's Settings tab rather than here.
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-UTC}
+      - DELETE_OLD_JOBS_DAYS=${DELETE_OLD_JOBS_DAYS:-}
       - PIPELINE_ENABLED=${PIPELINE_ENABLED:-}
       - PIPELINE_MODE=${PIPELINE_MODE:-}
       - PIPELINE_EVERY_N_HOURS=${PIPELINE_EVERY_N_HOURS:-}
       - PIPELINE_AT_MINUTE=${PIPELINE_AT_MINUTE:-}
       - PIPELINE_AT_TIME=${PIPELINE_AT_TIME:-}
       - RETENTION_AT_TIME=${RETENTION_AT_TIME:-}
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_URL=${LLM_URL}
-      - LLM_MODEL=${LLM_MODEL}
-      - FILTERING_SCORE=${FILTERING_SCORE:-60}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_URL=${LLM_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - FILTERING_SCORE=${FILTERING_SCORE:-}
       - AUTO_EMAIL=${AUTO_EMAIL:-}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_ID=${TELEGRAM_ID}
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PORT=${SMTP_PORT}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_APP_PASSWORD=${SMTP_APP_PASSWORD}
-      - SENDER_NAME=${SENDER_NAME}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_ID=${TELEGRAM_ID:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_APP_PASSWORD=${SMTP_APP_PASSWORD:-}
+      - SENDER_NAME=${SENDER_NAME:-}
+      - SCORING_DELAY_SECONDS=${SCORING_DELAY_SECONDS:-}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
     volumes:
       - ./data/db:/data/db
       # writable: the dashboard Settings tab replaces the CV and edits params
@@ -54,9 +58,8 @@ services:
       # relative timestamps ("12 min ago") are computed against the container clock,
       # and rows carry naive local timestamps written by python-api
       - TZ=${GENERIC_TIMEZONE:-UTC}
-      - FILTERING_SCORE=${FILTERING_SCORE:-60}
-      - SENDER_NAME=${SENDER_NAME:-}
-      - SMTP_USER=${SMTP_USER:-}
+      # Nothing else: the cutoff, the sender name and the sender address are read
+      # from the API now, so the dashboard cannot disagree with the scorer.
     ports:
       - "${DASHBOARD_PORT:-8501}:8501"
     depends_on:

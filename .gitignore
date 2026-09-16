@@ -68,6 +68,7 @@ CLAUDE.md
 skills-lock.json
 .scratch/
 docs/
+CONTEXT.md
 
 # Leftover n8n state; the container is gone, the directory may still be on disk
 data/n8n/

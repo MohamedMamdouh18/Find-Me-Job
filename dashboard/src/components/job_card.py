@@ -13,6 +13,7 @@ from html import escape
 
 import streamlit as st
 
+import library
 from api import (
     delete_job,
     get_filtered_job,
@@ -183,7 +184,7 @@ def render_job_detail(job: dict, starred_names, blocked_names, on_change):
     ]
     st.markdown(
         f'<div class="detail-headline">{score_chip(score)}'
-        f'<span class="detail-band">{escape(BAND_LABELS[score_band(score)])}</span>'
+        f'<span class="detail-band">{escape(BAND_LABELS[score_band(score, library.match_cutoff())])}</span>'
         f'<span class="detail-marks">{"".join(m for m in marks if m)}</span></div>',
         unsafe_allow_html=True,
     )

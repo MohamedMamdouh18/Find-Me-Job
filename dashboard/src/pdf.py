@@ -1,9 +1,6 @@
-import os
-
 from fpdf import FPDF
 
-SENDER_NAME = os.getenv("SENDER_NAME", "")
-SENDER_EMAIL = os.getenv("SMTP_USER", "")
+import library
 
 
 def sanitize(text: str) -> str:
@@ -22,13 +19,19 @@ def build_pdf(text: str, title: str, company: str) -> bytes:
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
 
-    if SENDER_NAME or SENDER_EMAIL:
-        if SENDER_NAME:
+    # The sender is a setting now, so it is read per build rather than from this
+    # container's environment — editing it in Settings changes the next PDF.
+    app_settings = library.settings()
+    sender_name = app_settings.get("SENDER_NAME") or ""
+    sender_email = app_settings.get("SMTP_USER") or ""
+
+    if sender_name or sender_email:
+        if sender_name:
             pdf.set_font("Helvetica", "B", 12)
-            pdf.cell(0, 8, sanitize(SENDER_NAME), new_x="LMARGIN", new_y="NEXT")
-        if SENDER_EMAIL:
+            pdf.cell(0, 8, sanitize(sender_name), new_x="LMARGIN", new_y="NEXT")
+        if sender_email:
             pdf.set_font("Helvetica", "", 10)
-            pdf.cell(0, 6, sanitize(SENDER_EMAIL), new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 6, sanitize(sender_email), new_x="LMARGIN", new_y="NEXT")
         pdf.ln(4)
         pdf.set_draw_color(200, 200, 200)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())

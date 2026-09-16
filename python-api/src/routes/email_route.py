@@ -1,14 +1,19 @@
+import logging
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from ..schemas.email import SendEmailRequest
-from ..shared import email_service
+from ..shared import get_email_service
+
+logger = logging.getLogger(__name__)
 
 email_router = APIRouter(prefix="/api/email", tags=["email"])
 
 
 @email_router.post("/send")
 def send_application_email(request: SendEmailRequest):
+    email_service = get_email_service()
     if not email_service:
         return JSONResponse(
             {"error": "SMTP credentials are not configured by the server."}, status_code=500

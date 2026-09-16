@@ -61,6 +61,14 @@ def redact_secrets(text: str) -> str:
     text = re.sub(r"(?:bot)?(\d{8,10}:[A-Za-z0-9_\-]{20,})", r"[REDACTED_TELEGRAM_TOKEN]", text)
     # Generic key/password fields in json
     text = re.sub(r'("(?:api_key|password|secret)":\s*")[^"]+(")', r'\1[REDACTED]\2', text, flags=re.IGNORECASE)
+    # Discord webhooks: the URL is the whole credential, there is no separate token,
+    # so a raw response carrying one must not reach run_events.
+    text = re.sub(
+        r"https://(?:\w+\.)?discord(?:app)?\.com/api/webhooks/\S+",
+        "[REDACTED_DISCORD_WEBHOOK]",
+        text,
+        flags=re.IGNORECASE,
+    )
     return text
 
 

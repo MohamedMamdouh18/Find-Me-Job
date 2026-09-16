@@ -7,6 +7,7 @@ from .blocked_route import blocked_router
 from .runs_route import runs_router
 from .backup_route import backup_router
 from .settings_route import settings_router
+from .sources_route import sources_router
 
 __all__ = [
     "cv_router",
@@ -18,4 +19,5 @@ __all__ = [
     "runs_router",
     "backup_router",
     "settings_router",
+    "sources_router",
 ]

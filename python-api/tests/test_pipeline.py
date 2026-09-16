@@ -54,7 +54,7 @@ def harness(monkeypatch):
         "extract_or_get_keywords",
         lambda ctx: ("cv text", {"titles": [], "skills": []}),
     )
-    monkeypatch.setattr(pipeline_module, "send_telegram", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline_module, "notify", lambda *a, **k: None)
     return engine
 
 

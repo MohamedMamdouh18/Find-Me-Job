@@ -11,7 +11,8 @@ from html import escape
 
 import streamlit as st
 
-from theme import BAND_LABELS, MATCH_CUTOFF, score_band, score_color
+import library
+from theme import BAND_LABELS, score_band, score_color
 
 
 # ── page chrome ─────────────────────────────────────────────────────────────
@@ -191,7 +192,7 @@ def score_chip(score, title: str = "") -> str:
     were the same bar, so the pixels were spent to say nothing the digits did not.
     """
     value = max(0, min(100, int(score or 0)))
-    band = score_band(value)
+    band = score_band(value, library.match_cutoff())
     tip = title or BAND_LABELS[band]
     return (
         f'<span class="score-chip band-{band}" title="{escape(tip, quote=True)}">'
@@ -201,7 +202,7 @@ def score_chip(score, title: str = "") -> str:
 
 def score_html(score, caption: str = "match") -> str:
     value = max(0, min(100, int(score or 0)))
-    color = score_color(value)
+    color = score_color(value, library.match_cutoff())
     return (
         f'<div class="score-pill">'
         f'<span class="score-num" style="color:{color}">{value}<span class="pct">%</span></span>'
@@ -306,4 +307,4 @@ def notice(text: str, tone: str = "idle"):
 
 
 def cutoff_note() -> str:
-    return f"Matched means the AI scored the job at {MATCH_CUTOFF} or above."
+    return f"Matched means the AI scored the job at {library.match_cutoff()} or above."

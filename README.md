@@ -41,7 +41,7 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - **Flexible LLM provider** - any OpenAI-compatible API (Groq, Google AI Studio, OpenRouter, local models, etc.)
 - **Company blocklist** - block a company and its jobs are dropped before they ever reach the LLM, so they cost nothing
 - **Starred companies** - keep a watchlist with careers URLs and notes; starred jobs are flagged with ★ and get their own view
-- **Settings tab** - upload your CV, edit search config, trigger a run, export your data, and download a database backup without leaving the dashboard
+- **Settings tab** - configure the LLM provider, cutoff, email and notifications, toggle sources, upload your CV, edit search config, trigger a run, export your data, and download a database backup without leaving the dashboard
 - **Run history** - every pipeline run is recorded with counts and errors, so a silent failure is visible
 - **Persistent storage** - SQLite with Alembic migrations applied on startup; old records purged automatically
 
@@ -73,8 +73,10 @@ cp params/linkedin_searches.txt.example params/linkedin_searches.txt
 docker compose up -d --build
 ```
 
-See [Environment Variables](#environment-variables-env) for what each setting does. At minimum
-you need `LLM_API_KEY`, `LLM_URL` and `LLM_MODEL`; Telegram and email are optional.
+See [Environment Variables](#environment-variables-env) for what each setting does. Only the
+container wiring has to be right before the first start; the LLM key, scoring, notifications and
+email are filled in from **Settings → Config** once the dashboard is up, or seeded in `.env`
+beforehand if you prefer.
 
 ### 3. Open the dashboard
 
@@ -90,22 +92,20 @@ The pipeline runs automatically on schedule and can be triggered manually from t
 
 ### Environment Variables (`.env`)
 
+**`.env` is a first-boot seed, not the live configuration.** The first time the database is
+created, these values are copied into the `app_settings` table; from then on the table wins and
+this file is ignored for those keys. Change a setting in the dashboard (**Settings → Config**),
+not here — editing `.env` afterwards looks like it does nothing, because it does.
+
+Five keys are the exception, because the containers are built with them and nothing re-reads them
+at run time: `GENERIC_TIMEZONE`, `APP_UID`, `API_PORT` / `DASHBOARD_PORT`, `DB_PATH`, and the
+dashboard's `API_URL`. The Config tab lists them as read-only for the same reason.
+
 ```env
-# ── General ──────────────────────────────────────────
+# ── Container wiring (only editable here) ────────────
+# Read when the stack starts: the scheduler is built with the timezone, the rest
+# is docker plumbing.
 GENERIC_TIMEZONE=Africa/Cairo
-
-# Days before old job records are purged (default: 60)
-# Cleanup runs on startup, and on the schedule set in Settings (default: midnight)
-DELETE_OLD_JOBS_DAYS=60
-
-# Schedule seeds, all optional. These fill the settings table on first boot only —
-# after that the dashboard owns them and editing .env here does nothing.
-# PIPELINE_ENABLED=true          # false leaves the pipeline manual-only
-# PIPELINE_MODE=daily            # daily | interval
-# PIPELINE_AT_TIME=01:00         # daily mode
-# PIPELINE_EVERY_N_HOURS=6       # interval mode; 1, 2, 3, 4, 6, 8 or 12
-# PIPELINE_AT_MINUTE=0           # interval mode, minute past the hour
-# RETENTION_AT_TIME=00:00        # when old records are purged
 
 # Host user id the API/dashboard containers run as; must own ./data (run: id -u)
 APP_UID=1000
@@ -115,30 +115,46 @@ APP_UID=1000
 API_PORT=8001
 DASHBOARD_PORT=8501
 
-# ── LLM ──────────────────────────────────────────────
-# API key for your chosen LLM provider
-LLM_API_KEY=your_api_key_here
-# Must be an OpenAI-compatible chat completions endpoint
-LLM_URL=https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
-# Model name supported by your chosen provider
-LLM_MODEL=gemini-2.5-flash   # any model your provider supports
-# Minimum score (0–100) for a job to be saved to filtered_jobs (default: 60)
-FILTERING_SCORE=60
-
-# ── Telegram (optional) ──────────────────────────────
-# Your personal Telegram user ID (get from @get_id_bot)
-TELEGRAM_ID=123456789
-# Bot token from @BotFather
-TELEGRAM_BOT_TOKEN=xxxxxxxxx:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-# ── Email (optional) ─────────────────────────────────
-# Set AUTO_EMAIL to any non-empty value to enable auto email applications
-AUTO_EMAIL=
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your@gmail.com
-SMTP_APP_PASSWORD=your_app_password
-SENDER_NAME=Your Name
+# ── First-boot seeds (all optional) ──────────────────
+# Uncomment any of these to prefill the settings table on the very first boot.
+# Leave them commented and the stack starts on its defaults, and you fill them in
+# at Settings > Config — which is where they live from then on either way.
+#
+# LLM. The key is the only thing the app cannot work without.
+# LLM_API_KEY=
+# LLM_URL=https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+# LLM_MODEL=gemini-2.5-flash
+#
+# Scoring. FILTERING_SCORE is the match cutoff; SCORING_DELAY_SECONDS is the rate
+# limit for free tiers, and the biggest lever on how long a run takes.
+# FILTERING_SCORE=60
+# SCORING_DELAY_SECONDS=20
+# DELETE_OLD_JOBS_DAYS=60
+#
+# Schedule.
+# PIPELINE_ENABLED=true
+# PIPELINE_MODE=daily            # daily | interval
+# PIPELINE_AT_TIME=01:00         # daily mode
+# PIPELINE_EVERY_N_HOURS=6       # interval mode; 1, 2, 3, 4, 6, 8 or 12
+# PIPELINE_AT_MINUTE=0           # interval mode, minute past the hour
+# RETENTION_AT_TIME=00:00
+#
+# Notifications. Telegram needs both the id (@get_id_bot) and the token
+# (@BotFather). The Discord webhook URL is the whole credential — anyone holding
+# it can post to the channel, so treat it like a token.
+# TELEGRAM_ID=123456789
+# TELEGRAM_BOT_TOKEN=xxxxxxxxx:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# DISCORD_WEBHOOK_URL=
+#
+# Email. AUTO_EMAIL sends real applications to real employers during a run: on is
+# 1/true/yes/on, anything else including blank is off. Sent mail cannot be
+# recalled, so leave it off until you have read a few generated letters.
+# AUTO_EMAIL=
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your@gmail.com
+# SMTP_APP_PASSWORD=
+# SENDER_NAME=
 ```
 
 ### LinkedIn Search Config
@@ -227,7 +243,7 @@ The cover letter is a 2-paragraph professional body - no name, address, or signa
 
 ## Choosing an LLM Provider
 
-The workflow works with **any OpenAI-compatible API**. Configure your provider by setting three environment variables in your `.env`:
+The workflow works with **any OpenAI-compatible API**. Configure your provider from **Settings → Config**, which sets three values (`.env` can seed them on first boot only):
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -424,7 +440,7 @@ Working with companies:
 
 ### Settings tab
 
-A control room rather than a preferences pane. A live status strip sits above five tabs:
+A control room rather than a preferences pane. A live status strip sits above six tabs:
 
 **Status strip** — polls in an `st.fragment`, so it updates without rerunning the page
 or losing your scroll position. It reads the same counts as the sidebar and Analytics:
@@ -437,7 +453,8 @@ or losing your scroll position. It reads the same counts as the sidebar and Anal
 
 | Tab | What it does |
 |-----|--------------|
-| **Workflow** | **Run now** triggers the pipeline and narrates the attempt in an `st.status`. Includes live progress with a countdown during rate-limit waits. Failures become a persistent block naming the cause |
+| **Workflow** | **Run now** triggers the pipeline and narrates the attempt in an `st.status`. Includes live progress with a countdown during rate-limit waits. Failures become a persistent block naming the cause. Below it: the schedule, the retention window, and a switch per source |
+| **Config** | The LLM provider (presets or a custom OpenAI-compatible endpoint), the match cutoff and scoring delay, the SMTP account with a test send, and Telegram/Discord with a test per channel. Secrets are write-only — a stored one shows as `stored, ends abcd` with an explicit **Clear**. The keys that can only live in `.env` are listed here read-only, with the reason |
 | **CV** | `cv.docx · 2.6 MB · file changed 27 Mar 2026 (4mo ago)`, the extracted titles and skills as chips (`4 titles · 18 skills · extracted 5mo ago` — a different event, so a different label), a download button, and the uploader collapsed behind **Replace CV** with a size diff and an explicit confirm |
 | **Searches** | `params/linkedin_searches.txt` as an editable table — one row per LinkedIn query, with `f_TPR` values shown as *Past week* and Easy Apply as a checkbox. The keyword-extraction prompt sits below it. **Save changes** stays disabled until something actually changes, and the heading turns to `● Unsaved changes` when it does |
 | **Data** | One export control (CSV/JSON × matched/all) that states row count and estimated size before you click, plus a one-click DB backup. Both generate lazily, so opening the tab exports nothing. Backups stream to your browser and are not kept server-side, which the tab says rather than leaving you to wonder where the history is |
@@ -462,7 +479,7 @@ The page auto-refreshes every 5 minutes. API responses are cached briefly in the
 
 The API runs on port `8001`. From your host use `http://localhost:8001`.
 
-All endpoints are prefixed with `/api`. On startup, the API automatically runs Alembic migrations and purges old records. Both the pipeline and the cleanup then run on the schedule stored in `app_settings` and edited from the dashboard's Settings → Workflow tab.
+All endpoints are prefixed with `/api`. On startup, the API automatically runs Alembic migrations, seeds `app_settings` from the environment, reconciles the `sources` table from the scraper registry, and purges old records. Both the pipeline and the cleanup then run on the schedule stored in `app_settings` and edited from the dashboard's Settings → Workflow tab.
 
 **Jobs** (`/api/jobs`):
 
@@ -548,8 +565,18 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 
 | Method | Endpoint | Params / Body | Description |
 |--------|----------|---------------|-------------|
+| `GET` | `/api/settings` | - | Every application setting as one flat object. Secret keys come back as `{"set": true, "hint": "…abcd"}` — no endpoint ever returns a stored credential |
+| `PUT` | `/api/settings` | `{"LLM_MODEL": "gpt-4o-mini", "FILTERING_SCORE": 55}` | Partial update. 400 naming the key on an invalid or unknown one. On a secret, `""` means "leave unchanged" and `null` clears it. Writing `FILTERING_SCORE` re-labels existing jobs and returns `{"updated": [...], "reclassified": n}` |
+| `POST` | `/api/settings/notifications/test` | `{"channel": "telegram"}` | Posts a fixed message through one channel and reports the HTTP result |
 | `GET` | `/api/settings/schedule` | - | Current schedule, `next_run_at`, timezone, and any overlap `conflict` |
-| `PUT` | `/api/settings/schedule` | `{"enabled": true, "mode": "interval", "every_n_hours": 3, "at_minute": 30, "at_time": "01:00", "retention_at_time": "00:00"}` | Partial update. Validates, stores, and reschedules live — no restart. 400 on an invalid value or a daily time that collides with retention |
+| `PUT` | `/api/settings/schedule` | `{"enabled": true, "mode": "interval", "every_n_hours": 3, "at_minute": 30, "at_time": "01:00", "retention_at_time": "00:00"}` | Partial update. Validates, stores, and reschedules live — no restart. 400 on an invalid value or a daily time that collides with retention. The six schedule keys are refused by the generic `PUT` above, so there is one writer per key |
+
+**Sources** (`/api/sources`):
+
+| Method | Endpoint | Params / Body | Description |
+|--------|----------|---------------|-------------|
+| `GET` | `/api/sources` | - | Every registered scraper and whether the next run will use it |
+| `PUT` | `/api/sources/{name}` | `{"enabled": false}` | Turn one source on or off. 404 on a name that is not registered. A source with no row counts as enabled |
 
 ### Scheduling
 
@@ -655,7 +682,7 @@ Same fields as pending, plus `score`, `application_document`, and `ai_status`:
 }
 ```
 
-The email is sent via SMTP using the credentials from your `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_APP_PASSWORD`, `SENDER_NAME`). Your `cv.docx` is automatically attached. Set `AUTO_EMAIL` to any non-empty value in `.env` to enable the pipeline to send application emails automatically when a job listing provides an email address.
+The email is sent via SMTP using the account set in **Settings → Config** (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_APP_PASSWORD`, `SENDER_NAME`). Your `cv.docx` is automatically attached. Turn on **Send applications automatically** there — `AUTO_EMAIL`, on for `1/true/yes/on` — to let the pipeline send application emails itself when a job listing provides an email address.
 
 ---
 

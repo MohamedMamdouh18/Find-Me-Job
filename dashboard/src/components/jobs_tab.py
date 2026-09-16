@@ -5,7 +5,7 @@ from api import add_manual_job
 from components.jobs_filters import render_jobs_filters
 from components.jobs_list import invalidate_jobs_cache, render_jobs_list
 from components.ui import page_header, summary_line
-from constants import MATCH_CUTOFF, USER_STATUSES, USER_STATUS_LABELS
+from constants import USER_STATUSES, USER_STATUS_LABELS
 
 
 @st.dialog("Add job", width="small")
@@ -78,7 +78,7 @@ def render_jobs_tab():
             (counts["strong"], "strong"),
             (counts["new"], "new"),
         ],
-        trailing=f"matched means scored {MATCH_CUTOFF} or above",
+        trailing=f"matched means scored {library.match_cutoff()} or above",
     )
 
     toast = st.session_state.pop("job_toast", None)

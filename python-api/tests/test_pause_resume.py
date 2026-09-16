@@ -57,7 +57,7 @@ def harness(monkeypatch):
         "extract_or_get_keywords",
         lambda ctx: ("cv text", {"titles": [], "skills": []}),
     )
-    monkeypatch.setattr(pipeline_module, "send_telegram", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline_module, "notify", lambda *a, **k: None)
     # A pause request must never leak between runs or between tests.
     pipeline_module._pause_event.clear()
     pipeline_module._stop_event.clear()
@@ -433,7 +433,7 @@ def test_stopped_run_is_not_described_as_paused(harness, monkeypatch):
     """A stopped run pointing the user at Resume sends them to a 409."""
     engine = harness
     sent: list[str] = []
-    monkeypatch.setattr(pipeline_module, "send_telegram", lambda text: sent.append(text))
+    monkeypatch.setattr(pipeline_module, "notify", lambda text: sent.append(text))
     monkeypatch.setattr(
         pipeline_module, "SOURCES", {"stub": lambda ctx, kw: [_job("a"), _job("b")]}
     )

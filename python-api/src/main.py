@@ -7,7 +7,7 @@ from sqlmodel import Session
 
 from . import shared
 from .database.core import delete_old_jobs, engine, run_migrations
-from .database.repositories import WorkflowRunRepository
+from .database.repositories import SourceRepository, WorkflowRunRepository
 from .routes import (
     backup_router,
     blocked_router,
@@ -17,8 +17,10 @@ from .routes import (
     params_router,
     runs_router,
     settings_router,
+    sources_router,
     starred_router,
 )
+from .scrapers import SOURCE_LABELS
 from .services import settings_store
 from .services.run_context import RunIdFilter
 from .services.schedule import apply_schedule
@@ -41,6 +43,9 @@ async def lifespan(app: FastAPI):
     # (create_all + stamp head), so a data migration would reach existing installs only.
     with Session(engine) as session:
         settings_store.seed_from_env(session)
+        # Same argument as the settings seed: a registry entry with no row is
+        # enabled, so this only gives the dashboard something to render.
+        SourceRepository(session).reconcile(SOURCE_LABELS)
         session.commit()
         settings_store.load_cache(session)
     delete_old_jobs()
@@ -55,8 +60,7 @@ async def lifespan(app: FastAPI):
 
     # SHUTDOWN
     tunnel_task.cancel()
-    if shared.email_service:
-        shared.email_service.quit()
+    shared.close_email_service()
 
     # Mark any in-flight runs as failed on shutdown
     try:
@@ -86,3 +90,4 @@ app.include_router(blocked_router)
 app.include_router(runs_router)
 app.include_router(backup_router)
 app.include_router(settings_router)
+app.include_router(sources_router)

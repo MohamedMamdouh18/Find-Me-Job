@@ -480,6 +480,82 @@ def get_schedule() -> dict:
         return {}
 
 
+def get_settings() -> dict:
+    """Every application setting. Secrets come back as {"set": bool, "hint": str} —
+    the API never returns a stored credential, so neither does this."""
+    try:
+        return _session.get(f"{API}/settings", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch settings")
+        return {}
+
+
+def put_settings(payload: dict) -> tuple[bool, str, int]:
+    """Partial update. Returns (ok, error, jobs reclassified by a cutoff change)."""
+    try:
+        res = _session.put(f"{API}/settings", json=payload, timeout=TIMEOUT)
+        if res.status_code == 200:
+            return True, "", res.json().get("reclassified", 0)
+        try:
+            return False, str(res.json().get("detail", res.text)), 0
+        except ValueError:
+            return False, res.text, 0
+    except requests.RequestException as e:
+        logger.exception("Failed to save settings")
+        return False, str(e), 0
+
+
+def test_notification(channel: str) -> dict:
+    """Posts a fixed message through one channel and reports the HTTP result."""
+    try:
+        res = _session.post(
+            f"{API}/settings/notifications/test", json={"channel": channel}, timeout=TIMEOUT
+        )
+        return res.json()
+    except (requests.RequestException, ValueError) as e:
+        logger.exception("Notification test failed")
+        return {"channel": channel, "ok": False, "status": None, "error": str(e)}
+
+
+def send_email(recipient: str, subject: str, body: str) -> tuple[bool, str]:
+    """Sends through the API's configured SMTP account. Used by the test button,
+    which sends to the account itself rather than to an employer."""
+    try:
+        res = _session.post(
+            f"{API}/email/send",
+            json={"recipient": recipient, "subject": subject, "body": body},
+            timeout=TIMEOUT,
+        )
+        if res.status_code == 200:
+            return True, ""
+        try:
+            payload = res.json()
+            return False, str(payload.get("details") or payload.get("error") or res.text)
+        except ValueError:
+            return False, res.text
+    except requests.RequestException as e:
+        logger.exception("Test email failed")
+        return False, str(e)
+
+
+def get_sources() -> list[dict]:
+    """Every registered scraper and whether the next run will use it."""
+    try:
+        return _session.get(f"{API}/sources", timeout=TIMEOUT).json()
+    except (requests.RequestException, ValueError):
+        logger.exception("Failed to fetch sources")
+        return []
+
+
+def put_source(name: str, enabled: bool) -> bool:
+    try:
+        res = _session.put(f"{API}/sources/{name}", json={"enabled": enabled}, timeout=TIMEOUT)
+        return res.status_code == 200
+    except requests.RequestException:
+        logger.exception("Failed to toggle source %s", name)
+        return False
+
+
 def put_schedule(payload: dict) -> tuple[bool, str]:
     """Partial update: send only what changed. The API validates and reschedules live."""
     try:

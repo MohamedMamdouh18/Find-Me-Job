@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import threading
 import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -20,6 +21,12 @@ class EmailService:
         self.sender_name = sender_name
         self.cv_path = cv_path
         self._client = None
+        # Sending and quitting both own the connection, and they arrive from
+        # different threads: the scheduler sends during a run, the uvicorn
+        # threadpool from POST /api/email/send, and a settings change closes the
+        # old service from whichever thread saved it. The factory's lock cannot
+        # cover this — it is released before the caller sends.
+        self._lock = threading.Lock()
 
     def _connect(self, retries=3, delay=2):
         if not self.user or not self.password:
@@ -66,34 +73,39 @@ class EmailService:
 
     def send_application_email(self, recipient: str, subject: str, body: str) -> str:
         """Constructs and sends the email with the CV attached."""
-        self._ensure_connection()
+        with self._lock:
+            self._ensure_connection()
 
-        msg = MIMEMultipart()
-        msg["From"] = f"{self.sender_name} <{self.user}>"
-        msg["To"] = recipient
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
+            msg = MIMEMultipart()
+            msg["From"] = f"{self.sender_name} <{self.user}>"
+            msg["To"] = recipient
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body, "plain"))
 
-        # Attach CV
-        with open(self.cv_path, "rb") as f:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(f.read())
-            encoders.encode_base64(part)
-            part.add_header("Content-Disposition", "attachment", filename="CV.docx")
-            msg.attach(part)
+            # Attach CV
+            with open(self.cv_path, "rb") as f:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(f.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", "attachment", filename="CV.docx")
+                msg.attach(part)
 
-        logger.info(f"Sending email to {recipient} with subject '{subject}'")
+            logger.info(f"Sending email to {recipient} with subject '{subject}'")
 
-        # Guarantee self._client is fresh or alive
-        response = self._client.send_message(msg)  # type: ignore
-        return str(response)
+            # Guarantee self._client is fresh or alive
+            response = self._client.send_message(msg)  # type: ignore
+            return str(response)
 
     def quit(self):
-        """Cleanly quits the active SMTP connection if one exists."""
-        if self._client is not None:
-            try:
-                self._client.quit()
-                logger.info("SMTP disconnected safely")
-            except Exception as e:
-                logger.warning(f"Error disconnecting from SMTP: {e}")
-            self._client = None
+        """Cleanly quits the active SMTP connection if one exists.
+
+        Waits for a send in flight rather than closing the socket underneath it.
+        """
+        with self._lock:
+            if self._client is not None:
+                try:
+                    self._client.quit()
+                    logger.info("SMTP disconnected safely")
+                except Exception as e:
+                    logger.warning(f"Error disconnecting from SMTP: {e}")
+                self._client = None

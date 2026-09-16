@@ -21,11 +21,12 @@ from ..database.models.enums import AiStatus, LockHolder, RunStatus, RunTrigger,
 from ..database.repositories import (
     FilteredJobRepository,
     PendingJobRepository,
+    SourceRepository,
     WorkflowRunRepository,
 )
 from ..scrapers import SOURCES
 from .. import shared
-from ..shared import send_telegram
+from .notifications import notify
 
 logger = logging.getLogger(__name__)
 _run_lock = threading.Lock()
@@ -158,6 +159,23 @@ def _record_dropped_run(trigger: str, reason: str) -> None:
         logger.exception("Could not record the dropped run")
 
 
+def _enabled_sources(session, ctx) -> dict:
+    """The registry minus what the user switched off.
+
+    Asks which sources are disabled rather than which are enabled, so a source with
+    no row runs: that keeps an upgrade silent and a newly registered module working
+    before anyone has opened Settings. Every source being off is a valid state — the
+    queue is still drained below, the same way a resume drains it.
+    """
+    disabled = SourceRepository(session).disabled_names()
+    if disabled:
+        ctx.emit(
+            "scrape.disabled",
+            f"Skipping disabled sources: {', '.join(sorted(disabled))}",
+        )
+    return {name: fetch for name, fetch in SOURCES.items() if name not in disabled}
+
+
 def run_pipeline(trigger: str = RunTrigger.SCHEDULE.value) -> None:
     """Orchestrates a complete job search, scrape, score, email, and notify cycle."""
     acquired, reason = _acquire_for_pipeline()
@@ -209,10 +227,13 @@ def run_pipeline(trigger: str = RunTrigger.SCHEDULE.value) -> None:
                 # still read above because scoring needs cv_text, and that call only
                 # hits the LLM when the CV hash changed.
                 total_queued = 0
-                sources = {} if paused else SOURCES
+                sources: dict = {}
                 if trigger == RunTrigger.RESUME:
-                    sources = {}
                     ctx.emit("scrape.skipped", "Resuming a paused run; not re-scraping")
+                elif not paused:
+                    # Inside the branch, not above it: a resume that is not scraping
+                    # has nothing to say about which sources are switched off.
+                    sources = _enabled_sources(session, ctx)
                 for source_name, fetch_fn in sources.items():
                     # Between sources, so a stop does not sit through every scraper.
                     if _pause_event.is_set():
@@ -394,7 +415,7 @@ def run_pipeline(trigger: str = RunTrigger.SCHEDULE.value) -> None:
                         f"Dashboard: {shared.DASHBOARD_URL}"
                     )
 
-                send_telegram(summary_text)
+                notify(summary_text)
 
             except Exception as e:
                 logger.exception(f"Pipeline run {run.id} failed: {e}")

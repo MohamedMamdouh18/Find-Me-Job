@@ -103,9 +103,11 @@ from theme import CHART_LAYOUT  # noqa: E402,F401
 
 # Score thresholds live with the colours that encode them, so a band and its
 # label can never drift apart. Re-exported here because every page imports
-# constants and almost none import theme directly.
+# constants and almost none import theme directly. The match cutoff is NOT
+# re-exported: it is user-set, so it is read per run through library.match_cutoff()
+# and a module constant would be exactly the drift that accessor exists to stop.
 from theme import (  # noqa: E402,F401
-    BAND_LABELS, MATCH_CUTOFF, STRONG_SCORE, score_band,
+    BAND_LABELS, STRONG_SCORE, score_band,
 )
 
 # Cross-file session state keys

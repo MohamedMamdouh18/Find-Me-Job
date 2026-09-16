@@ -12,3 +12,11 @@ class ScheduleUpdate(BaseModel):
     at_minute: Optional[int] = None
     at_time: Optional[str] = None
     retention_at_time: Optional[str] = None
+
+
+class NotificationTest(BaseModel):
+    channel: str
+
+
+class SourceToggle(BaseModel):
+    enabled: bool

@@ -1,7 +1,7 @@
 """Settings — the control room for the scraper, not a preferences pane.
 
-Four of the five sections are verbs (run it, replace the CV, export, inspect the
-runs); only Searches is settings in the traditional sense. So the page leads with
+Four of the six tabs are verbs (run it, replace the CV, export, inspect the runs);
+Config and Searches are settings in the traditional sense. So the page leads with
 a live status strip that answers "is my scraper healthy?" before anything else,
 and every action reports back what it did.
 """
@@ -29,11 +29,16 @@ from api import (
     get_run_events,
     get_runs,
     get_schedule,
+    get_sources,
     pause_run,
     put_param,
     put_schedule,
+    put_settings,
+    put_source,
     resume_run,
+    send_email,
     stop_run,
+    test_notification,
     trigger_run,
     upload_cv,
 )
@@ -148,9 +153,14 @@ def _cached_row_count(matched_only: bool) -> int:
     return int(resp.get("total", 0))
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_sources() -> list[dict]:
+    return get_sources()
+
+
 def _invalidate_settings():
     for fn in (_cached_runs, _cached_cv_info, _cached_keywords,
-               _cached_param, _cached_row_count, _cached_schedule):
+               _cached_param, _cached_row_count, _cached_schedule, _cached_sources):
         fn.clear()  # type: ignore[attr-defined]
     library.refresh()
 
@@ -1041,6 +1051,15 @@ def _render_schedule():
                 help="Retention never runs during a scrape — it waits for the next day instead.",
             )
 
+        # The window lives beside the time it runs at rather than in Config: one
+        # question, asked once.
+        retention_days = st.number_input(
+            "Keep jobs for (days)", min_value=1, max_value=3650,
+            value=int(library.settings().get("DELETE_OLD_JOBS_DAYS") or 60), step=10,
+            key="schedule_retention_days",
+            help="Retention deletes jobs, runs and run events older than this.",
+        )
+
         # The plan on screen, not the saved one: the saved warning would still be
         # showing after the user has already moved the time that caused it.
         conflict = _live_conflict(
@@ -1085,7 +1104,11 @@ def _render_schedule():
             }
             ok, msg = put_schedule(payload)
             if ok:
-                _flash("success", "Schedule saved. A run already in progress is unaffected.")
+                saved, error, _ = put_settings({"DELETE_OLD_JOBS_DAYS": int(retention_days)})
+                if saved:
+                    _flash("success", "Schedule saved. A run already in progress is unaffected.")
+                else:
+                    _flash("error", f"Schedule saved, but the retention window was not: {error}")
                 _invalidate_settings()
             else:
                 _flash("error", f"Could not save the schedule: {msg}")
@@ -1199,21 +1222,337 @@ def _render_run_detail(run: dict):
                         st.code(ctx, language="json" if ctx.startswith("{") else None)
 
 
+# ── configuration ───────────────────────────────────────────────────────────
+#
+# Everything here is stored in app_settings and applies to the next run without a
+# restart. .env only seeds these the first time the database is created.
+
+LLM_PRESETS = {
+    "Google Gemini": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    "OpenAI": "https://api.openai.com/v1/chat/completions",
+    "Anthropic": "https://api.anthropic.com/v1/chat/completions",
+    "Groq": "https://api.groq.com/openai/v1/chat/completions",
+    "OpenRouter": "https://openrouter.ai/api/v1/chat/completions",
+    "Together": "https://api.together.xyz/v1/chat/completions",
+}
+CUSTOM_PRESET = "Custom"
+
+# Read-only because the container is built with them: the scheduler takes the
+# timezone at startup and the rest are wiring. Shown rather than hidden, so they
+# do not look broken when they refuse to move.
+ENV_ONLY = {
+    "GENERIC_TIMEZONE": "The clock both containers run on. Read once at startup.",
+    "APP_UID": "Must equal your host user id or the containers cannot write ./data.",
+    "API_PORT / DASHBOARD_PORT": "Host ports, published by docker compose.",
+    "DB_PATH": "Where the SQLite file lives inside the container.",
+    "API_URL": "Where this dashboard finds the API on the internal network.",
+}
+
+
+def _int_setting(values: dict, key: str, default: int) -> int:
+    """`values.get(key) or default` would read a stored 0 — valid for both the cutoff
+    and the delay — as unset, show the default and write it back on the next Save."""
+    try:
+        return int(values[key])
+    except (KeyError, TypeError, ValueError):
+        return default
+
+
+def _apply_secret(payload: dict, key: str, value: str | None) -> None:
+    """The blank-means-unchanged half of _secret_input: None clears the stored value,
+    text replaces it, and "" is the untouched field, which must not be sent at all."""
+    if value is None or value:
+        payload[key] = value
+
+
+def _save_settings(payload: dict, what: str):
+    ok, msg, reclassified = put_settings(payload)
+    if ok:
+        note = f"{what} saved."
+        if reclassified:
+            note += f" {reclassified} jobs were re-labelled against the new cutoff."
+        _flash("success", note)
+        _invalidate_settings()
+    else:
+        _flash("error", f"Could not save {what.lower()}: {msg}")
+    st.rerun()
+
+
+def _secret_input(label: str, key: str, values: dict, help: str | None = None):
+    """A stored secret is never sent back to us, so the field starts empty and a
+    blank one means "leave it alone". Clearing has to be explicit."""
+    meta = values.get(key) or {}
+    stored = bool(meta.get("set"))
+    hint = meta.get("hint") or ""
+
+    typed = st.text_input(
+        label,
+        value="",
+        type="password",
+        key=f"cfg_{key}",
+        # A value too short to hint at comes back with an empty hint rather than
+        # its own last characters, so the placeholder has to cope with one.
+        placeholder=(f"stored, ends {hint}" if hint else "stored") if stored else "not set",
+        help=help,
+    )
+    clear = False
+    if stored:
+        clear = st.checkbox(
+            f"Clear {label.lower()}", key=f"cfg_clear_{key}",
+            help="Removes the stored value. The field above is ignored.",
+        )
+    if clear:
+        return None
+    return typed or ""
+
+
+def _render_providers(values: dict):
+    with st.container(border=True):
+        section_head(
+            "LLM provider",
+            "Every call posts an OpenAI-shaped body, so any provider with an "
+            "OpenAI-compatible /chat/completions endpoint works.",
+        )
+
+        current_url = values.get("LLM_URL") or ""
+        preset = next((name for name, url in LLM_PRESETS.items() if url == current_url), CUSTOM_PRESET)
+        names = list(LLM_PRESETS) + [CUSTOM_PRESET]
+        chosen = st.selectbox(
+            "Provider", names, index=names.index(preset), key="cfg_llm_preset",
+        )
+        if chosen == CUSTOM_PRESET:
+            url = st.text_input(
+                "Endpoint", value=current_url, key="cfg_llm_url",
+                help="Must end in an OpenAI-compatible /chat/completions path.",
+            )
+        else:
+            # Deliberately unkeyed: Streamlit keeps keyed widget state across reruns
+            # and ignores `value`, so a keyed field here would show — and save — the
+            # previous provider's endpoint after switching preset.
+            url = LLM_PRESETS[chosen]
+            st.text_input("Endpoint", value=url, disabled=True)
+        model = st.text_input("Model", value=values.get("LLM_MODEL") or "", key="cfg_llm_model")
+        api_key = _secret_input("API key", "LLM_API_KEY", values)
+
+        if st.button("Save provider", icon=":material/save:", type="primary", key="cfg_save_llm"):
+            payload = {"LLM_URL": url.strip(), "LLM_MODEL": model.strip()}
+            _apply_secret(payload, "LLM_API_KEY", api_key)
+            _save_settings(payload, "Provider")
+
+
+def _render_scoring(values: dict):
+    with st.container(border=True):
+        section_head("Scoring", "What counts as a match, and how fast the scorer works.")
+
+        cutoff = st.slider(
+            "Match cutoff", 0, 100, value=_int_setting(values, "FILTERING_SCORE", 60),
+            key="cfg_cutoff",
+            help="The verdict is written at this score. Changing it re-labels the "
+                 "jobs you already have, so the table never holds two rules at once.",
+        )
+        delay = st.number_input(
+            "Seconds between scored jobs", min_value=0, max_value=3600,
+            value=_int_setting(values, "SCORING_DELAY_SECONDS", 20), step=5, key="cfg_delay",
+            help="The rate limit for free LLM tiers, and the biggest lever on how "
+                 "long a run takes: 100 queued jobs at 20s is over half an hour.",
+        )
+
+        if st.button("Save scoring", icon=":material/save:", type="primary", key="cfg_save_scoring"):
+            _save_settings(
+                {"FILTERING_SCORE": int(cutoff), "SCORING_DELAY_SECONDS": int(delay)}, "Scoring"
+            )
+
+
+def _render_email(values: dict):
+    with st.container(border=True):
+        section_head("Email", "The account applications are sent from.")
+
+        configured = bool(values.get("SMTP_USER")) and bool(
+            (values.get("SMTP_APP_PASSWORD") or {}).get("set")
+        )
+        if not configured:
+            st.info("SMTP is not configured, so no application email is ever sent.")
+
+        # Visible, not a tooltip: this is the one switch on the page that mails
+        # strangers, and a hover is not a warning to someone flipping it in passing.
+        st.warning(
+            "Automatic sending posts real applications to real employers during a run — "
+            "any matched job whose description carries an address. Sent mail cannot be "
+            "recalled, so read a few generated letters first.",
+            icon=":material/outgoing_mail:",
+        )
+        auto = st.toggle(
+            "Send applications automatically", value=bool(values.get("AUTO_EMAIL")),
+            key="cfg_auto_email",
+        )
+        sender = st.text_input("Sender name", value=values.get("SENDER_NAME") or "", key="cfg_sender")
+
+        left, right = st.columns(2)
+        with left:
+            host = st.text_input("SMTP host", value=values.get("SMTP_HOST") or "", key="cfg_smtp_host")
+            user = st.text_input("SMTP user", value=values.get("SMTP_USER") or "", key="cfg_smtp_user")
+        with right:
+            port = st.number_input(
+                "SMTP port", min_value=1, max_value=65535,
+                value=int(values.get("SMTP_PORT") or 587), key="cfg_smtp_port",
+            )
+            password = _secret_input("App password", "SMTP_APP_PASSWORD", values)
+
+        save_col, test_col = st.columns([1, 1])
+        with save_col:
+            if st.button("Save email", icon=":material/save:", type="primary", key="cfg_save_email"):
+                payload = {
+                    "AUTO_EMAIL": bool(auto),
+                    "SENDER_NAME": sender.strip(),
+                    "SMTP_HOST": host.strip(),
+                    "SMTP_PORT": int(port),
+                    "SMTP_USER": user.strip(),
+                }
+                _apply_secret(payload, "SMTP_APP_PASSWORD", password)
+                _save_settings(payload, "Email")
+        with test_col:
+            if st.button(
+                "Send test email", icon=":material/outgoing_mail:", key="cfg_test_email",
+                disabled=not configured,
+                help="Sends to the configured account itself, never to an employer.",
+            ):
+                ok, msg = send_email(
+                    values.get("SMTP_USER") or "",
+                    "Find Me a Job: test email",
+                    "SMTP is configured correctly.",
+                )
+                _flash("success" if ok else "error", "Test email sent." if ok else f"Test email failed: {msg}")
+                st.rerun()
+
+
+def _render_notifications(values: dict):
+    with st.container(border=True):
+        section_head(
+            "Notifications",
+            "Run summaries go to every configured channel. A dead channel is logged "
+            "and skipped — it can never fail a run.",
+        )
+
+        telegram_id = st.text_input(
+            "Telegram chat id", value=values.get("TELEGRAM_ID") or "", key="cfg_tg_id"
+        )
+        telegram_token = _secret_input("Telegram bot token", "TELEGRAM_BOT_TOKEN", values)
+        discord = _secret_input(
+            "Discord webhook URL", "DISCORD_WEBHOOK_URL", values,
+            help="The URL is the whole credential: anyone holding it can post to the "
+                 "channel, so it is stored and masked like a token.",
+        )
+
+        save_col, tg_col, dc_col = st.columns([2, 1, 1])
+        with save_col:
+            if st.button(
+                "Save notifications", icon=":material/save:", type="primary", key="cfg_save_notify"
+            ):
+                payload: dict = {"TELEGRAM_ID": telegram_id.strip()}
+                _apply_secret(payload, "TELEGRAM_BOT_TOKEN", telegram_token)
+                _apply_secret(payload, "DISCORD_WEBHOOK_URL", discord)
+                _save_settings(payload, "Notifications")
+        with tg_col:
+            if st.button("Test Telegram", key="cfg_test_tg"):
+                _report_channel_test("telegram")
+        with dc_col:
+            if st.button("Test Discord", key="cfg_test_dc"):
+                _report_channel_test("discord")
+
+
+def _report_channel_test(channel: str):
+    result = test_notification(channel)
+    if result.get("ok"):
+        _flash("success", f"{channel.title()} accepted the message (HTTP {result.get('status')}).")
+    else:
+        _flash("error", f"{channel.title()} failed: {result.get('error')}")
+    st.rerun()
+
+
+def _render_env_only():
+    with st.container(border=True):
+        section_head(
+            "Set in .env, not here",
+            "These are container wiring: they are read when the stack starts, so "
+            "changing them at run time would change nothing.",
+        )
+        for key, why in ENV_ONLY.items():
+            st.markdown(readout(key, escape(why)), unsafe_allow_html=True)
+
+
+def _render_config():
+    values = library.settings()
+    if not values:
+        with st.container(border=True):
+            section_head("Configuration", "")
+            st.error("The API is unreachable, so settings cannot be read.")
+        return
+
+    # Story 33: the comment above says this to whoever reads the source; the user
+    # editing .env and waiting for something to happen needs it on the page.
+    st.info(
+        "Everything here is stored in the database and applies to the next run without "
+        "a restart. `.env` only seeds these the first time the database is created — "
+        "after that this page owns them and editing `.env` does nothing.",
+        icon=":material/info:",
+    )
+
+    _render_providers(values)
+    _render_scoring(values)
+    _render_email(values)
+    _render_notifications(values)
+    _render_env_only()
+
+
+def _render_sources():
+    sources = _cached_sources()
+    with st.container(border=True):
+        section_head("Sources", "Which sites the next run scrapes.")
+
+        if not sources:
+            st.info("No sources are registered.")
+            return
+
+        for source in sources:
+            enabled = st.toggle(
+                source["label"], value=bool(source["enabled"]), key=f"src_{source['name']}"
+            )
+            if enabled != bool(source["enabled"]):
+                if put_source(source["name"], enabled):
+                    _invalidate_settings()
+                    st.rerun()
+                else:
+                    _flash("error", f"Could not change {source['label']}.")
+                    st.rerun()
+
+        if not any(s["enabled"] for s in sources):
+            st.info(
+                "Every source is off. Runs still score whatever is already queued, "
+                "they just add nothing new."
+            )
+
+
 # ── page ────────────────────────────────────────────────────────────────────
 
 
 def render_settings_tab():
     with st.container(key="settings_page"):
-        page_header("Settings", "Workflow control, CV, searches, data and run history.")
+        page_header(
+            "Settings",
+            "Workflow control, configuration, CV, searches, data and run history.",
+        )
         _render_flash()
         _status_strip()
 
-        workflow, cv, searches, data, history = st.tabs(
-            ["Workflow", "CV", "Searches", "Data", "History"]
+        workflow, config, cv, searches, data, history = st.tabs(
+            ["Workflow", "Config", "CV", "Searches", "Data", "History"]
         )
         with workflow:
             _render_workflow()
             _render_schedule()
+            _render_sources()
+        with config:
+            _render_config()
         with cv:
             _render_cv()
         with searches:

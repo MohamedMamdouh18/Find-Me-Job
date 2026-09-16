@@ -9,7 +9,7 @@ screens using the same word for different sets:
 
     Scored / in DB   a row exists in filtered_jobs and carries a score
     Queued           scraped, waiting for the scorer — not in filtered_jobs yet
-    Matched          score >= MATCH_CUTOFF, which is exactly ai_status == "fit"
+    Matched          score >= match_cutoff(), which is exactly ai_status == "fit"
     Strong match     score >= STRONG_SCORE
     New              scored, still at user_status "new"
 """
@@ -26,18 +26,36 @@ from api import (
     get_pending_count,
     get_runs,
     get_score_distribution,
+    get_settings,
     get_starred_companies,
     get_stats,
     get_stats_by_source,
     get_top_companies,
 )
-from theme import MATCH_CUTOFF, STRONG_SCORE
+from theme import DEFAULT_MATCH_CUTOFF, STRONG_SCORE
 
 STATS_TTL = 20
 HEALTH_TTL = 15
+SETTINGS_TTL = 30
 
 STARRED = "starred"
 BLOCKED = "blocked"
+
+
+@st.cache_data(ttl=SETTINGS_TTL, show_spinner=False)
+def settings() -> dict:
+    """Every application setting, as the API reports it. Secrets arrive masked."""
+    return get_settings()
+
+
+def match_cutoff() -> int:
+    """The scorer's cutoff, read from the API rather than from this container's
+    environment: it is editable from Settings, and the number on a chart has to be
+    the number the scorer used."""
+    try:
+        return int(settings().get("FILTERING_SCORE"))
+    except (TypeError, ValueError):
+        return DEFAULT_MATCH_CUTOFF
 
 
 @st.cache_data(ttl=STATS_TTL, show_spinner=False)
@@ -46,7 +64,7 @@ def stats() -> dict:
     raw = get_stats()
     bins = get_score_distribution()
     strong = sum(b["count"] for b in bins if b.get("start", 0) >= STRONG_SCORE)
-    below = sum(b["count"] for b in bins if b.get("start", 0) + 9 < MATCH_CUTOFF)
+    below = sum(b["count"] for b in bins if b.get("start", 0) + 9 < match_cutoff())
     return {
         **raw,
         # Stamped inside the cached call, so it is the age of these numbers and
@@ -100,7 +118,7 @@ def company_stats() -> dict:
 
 
 def refresh():
-    for fn in (stats, funnel, health, companies, company_stats, sources, daily_applied):
+    for fn in (stats, funnel, health, companies, company_stats, sources, daily_applied, settings):
         fn.clear()  # type: ignore[attr-defined]
 
 
@@ -180,7 +198,7 @@ def attention(counts: dict, hlth: dict) -> list[dict]:
     if below:
         items.append({
             "tone": "idle",
-            "text": f"{below} jobs scored below your cutoff of {MATCH_CUTOFF}.",
+            "text": f"{below} jobs scored below your cutoff of {match_cutoff()}.",
             "action": "Review", "page": "Jobs", "view": "Below cutoff",
         })
 

@@ -2,61 +2,95 @@ import asyncio
 from datetime import datetime
 import logging
 import os
+import threading
 import httpx
 import re
 from zoneinfo import ZoneInfo
+from apscheduler.schedulers.background import BackgroundScheduler
+
 from .services import settings
 from .services.email_service import EmailService
+from .services.notifications import notify
 
 logger = logging.getLogger(__name__)
 
 CV_PATH = "/data/cv.docx"
 PARAMS_DIR = "/data/params"
+# Container wiring, not an application setting: the scheduler below is built with
+# it at startup and the dashboard uses it as its own clock, so changing it at run
+# time would change neither.
 TIMEZONE = ZoneInfo(os.getenv("GENERIC_TIMEZONE") or "UTC")
 DASHBOARD_URL = ""
 
 TUNNEL_POLL_FAST = 5      # seconds, while the stack is starting
 TUNNEL_POLL_SLOW = 60     # seconds, steady-state watch for a changed URL
 
-EMAIL_SENDER_NAME = settings.get_sender_name()
-SMTP_HOST = os.getenv("SMTP_HOST") or "smtp.gmail.com"
-# A blank SMTP_PORT= in .env yields "", not the default, and int("") is fatal at import.
-SMTP_PORT = int(os.getenv("SMTP_PORT") or 587)
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_APP_PASSWORD = os.getenv("SMTP_APP_PASSWORD")
-
-
-email_service = None
-
-if SMTP_USER and SMTP_APP_PASSWORD:
-    email_service = EmailService(
-        host=SMTP_HOST,
-        port=SMTP_PORT,
-        user=SMTP_USER,
-        password=SMTP_APP_PASSWORD,
-        sender_name=EMAIL_SENDER_NAME,  # type: ignore
-        cv_path=CV_PATH,
-    )
-
-
-from apscheduler.schedulers.background import BackgroundScheduler
-
 scheduler = BackgroundScheduler(timezone=TIMEZONE)
 
+# The SMTP account is editable from the dashboard, so the service cannot be built
+# at import: it is rebuilt whenever the values it was built from change, and the
+# open connection is reused whenever they have not. Callers must call this rather
+# than hold the returned object — importing it by value is how a settings change
+# fails to reach a call site.
+_email_service: EmailService | None = None
+_email_config: tuple | None = None
+# Guards the swap only: two threads must not build two services, and the one being
+# replaced must be quit exactly once. Tearing the connection down inside another
+# thread's send is EmailService's own lock to prevent — this one is released before
+# the caller sends, so it cannot. The import-time singleton this replaced could not
+# race at all.
+_email_lock = threading.Lock()
 
-def send_telegram(message: str):
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_ID")
-    if not token or not chat_id:
-        return
-    try:
-        httpx.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": message},
-            timeout=5,
-        )
-    except Exception as e:
-        logger.warning(f"Telegram notification failed: {e}")
+
+def get_email_service() -> EmailService | None:
+    """The configured sender, or None when SMTP is not set up."""
+    global _email_service, _email_config
+
+    config = (
+        settings.get_smtp_host(),
+        settings.get_smtp_port(),
+        settings.get_smtp_user(),
+        settings.get_smtp_password(),
+        settings.get_sender_name(),
+    )
+    host, port, user, password, sender_name = config
+
+    with _email_lock:
+        if not user or not password:
+            _close_email_service()
+            return None
+
+        if _email_service is None or config != _email_config:
+            _close_email_service()
+            _email_service = EmailService(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                sender_name=sender_name,
+                cv_path=CV_PATH,
+            )
+            _email_config = config
+
+        return _email_service
+
+
+def _close_email_service() -> None:
+    """Caller holds _email_lock."""
+    global _email_service, _email_config
+
+    if _email_service is not None:
+        try:
+            _email_service.quit()
+        except Exception as e:
+            logger.warning(f"Closing the SMTP connection failed: {e}")
+    _email_service = None
+    _email_config = None
+
+
+def close_email_service() -> None:
+    with _email_lock:
+        _close_email_service()
 
 
 async def detect_tunnel_url_and_send_notification():
@@ -87,10 +121,10 @@ async def detect_tunnel_url_and_send_notification():
                 first = not DASHBOARD_URL
                 DASHBOARD_URL = url
                 logger.info(f"Tunnel URL {'detected' if first else 'changed'}: {url}")
-                # send_telegram blocks on an HTTP call; off-thread so a slow or
-                # unreachable Telegram cannot stall the event loop.
+                # notify blocks on an HTTP call per channel; off-thread so a slow
+                # or unreachable channel cannot stall the event loop.
                 await asyncio.to_thread(
-                    send_telegram,
+                    notify,
                     f"Find Me a Job is up!\n Dashboard: {url}"
                     if first
                     else f"Tunnel URL changed\n Dashboard: {url}",

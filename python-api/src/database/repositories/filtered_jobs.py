@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import case, delete, or_
+from sqlalchemy import case, delete, or_, update
 from sqlalchemy.orm import load_only
 from sqlmodel import Session, select, func
 
@@ -45,6 +45,29 @@ class FilteredJobRepository:
 
     def exists(self, job_id: str) -> bool:
         return self.session.get(FilteredJob, job_id) is not None
+
+    def reclassify(self, cutoff: int) -> int:
+        """Re-derive ai_status from the stored score after the cutoff moved.
+
+        ai_status is written once, at scoring time, so a cutoff change otherwise
+        leaves the table holding two populations judged under different rules.
+        Deliberately touches nothing else: not user_status, not updated_at, and no
+        job_status_history row — a cutoff change is not a decision about any one job.
+        """
+        fit = AiStatus.FIT.value
+        not_fit = AiStatus.NOT_FIT.value
+        result = self.session.execute(
+            update(FilteredJob)
+            .where(
+                or_(
+                    (FilteredJob.score >= cutoff) & (FilteredJob.ai_status != fit),
+                    (FilteredJob.score < cutoff) & (FilteredJob.ai_status != not_fit),
+                )
+            )
+            .values(ai_status=case((FilteredJob.score >= cutoff, fit), else_=not_fit))
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount or 0
 
     def add(self, job: FilteredJob):
         existing = self.session.get(FilteredJob, job.id)

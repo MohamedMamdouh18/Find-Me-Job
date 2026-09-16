@@ -10,3 +10,4 @@ from .blocked_company import BlockedCompany
 from .workflow_run import WorkflowRun
 from .run_event import RunEvent
 from .app_setting import AppSetting
+from .job_source import JobSource

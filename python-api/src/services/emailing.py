@@ -7,7 +7,8 @@ from .llm import call_llm, parse_llm_json
 from .run_context import PauseRequested
 from .run_context import RunContext
 from ..database.models import PendingJob
-from ..shared import PARAMS_DIR, email_service, send_telegram
+from ..shared import PARAMS_DIR, get_email_service
+from .notifications import notify
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,7 @@ def process_and_send_email_if_needed(
     if ctx.interrupt is not None and ctx.interrupt.is_set():
         raise PauseRequested("run interrupted before sending the application email")
 
+    email_service = get_email_service()
     if email_service:
         try:
             # EmailService attaches the CV itself from its configured cv_path.
@@ -102,7 +104,7 @@ def process_and_send_email_if_needed(
                 f"Sent application email for {job.title} at {job.company} to {recipient_email}",
                 context={"recipient": recipient_email, "subject": subject},
             )
-            send_telegram(
+            notify(
                 f"Application email sent for *{job.title}* at *{job.company}*\nTo: {recipient_email}"
             )
             return True

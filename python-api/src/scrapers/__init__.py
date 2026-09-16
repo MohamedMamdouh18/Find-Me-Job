@@ -7,4 +7,11 @@ SOURCES: dict[str, Source] = {
     "remoteok": remoteok_fetch,
 }
 
-__all__ = ["SOURCES", "Source", "linkedin_fetch", "remoteok_fetch"]
+# How each source is named in the dashboard. Registered alongside SOURCES so a new
+# module arrives with its own label rather than a title-cased key.
+SOURCE_LABELS: dict[str, str] = {
+    "linkedin": "LinkedIn",
+    "remoteok": "RemoteOK",
+}
+
+__all__ = ["SOURCES", "SOURCE_LABELS", "Source", "linkedin_fetch", "remoteok_fetch"]

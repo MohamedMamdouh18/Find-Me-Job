@@ -11,8 +11,6 @@ Two light slots sit below 3:1 on the light surface, so every chart that uses
 them ships visible labels and a legend -- colour never carries meaning alone.
 """
 
-import os
-
 # ── surfaces / ink ──────────────────────────────────────────────────────────
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
@@ -65,7 +63,9 @@ NEUTRAL = "#898781"
 #                               are the same set, not two similar ones)
 #   below             below your cutoff
 STRONG_SCORE = 80
-MATCH_CUTOFF = int(os.getenv("FILTERING_SCORE", "60"))
+# The cutoff is user-set and lives in the API; this is only the fallback for a
+# dashboard that cannot reach it. library.match_cutoff() is the value to use.
+DEFAULT_MATCH_CUTOFF = 60
 
 BAND_STRONG = "strong"
 BAND_MATCHED = "matched"
@@ -85,18 +85,20 @@ BAND_COLORS = {
 }
 
 
-def score_band(score) -> str:
+def score_band(score, cutoff: int = DEFAULT_MATCH_CUTOFF) -> str:
+    """The cutoff is passed in rather than read here: it is user-set, and theme
+    cannot import library without closing the loop."""
     value = int(score or 0)
     if value >= STRONG_SCORE:
         return BAND_STRONG
-    if value >= MATCH_CUTOFF:
+    if value >= cutoff:
         return BAND_MATCHED
     return BAND_BELOW
 
 
-def score_color(score) -> str:
+def score_color(score, cutoff: int = DEFAULT_MATCH_CUTOFF) -> str:
     """Magnitude, so one hue getting darker — not a red/amber/green rainbow."""
-    return BAND_COLORS[score_band(score)]
+    return BAND_COLORS[score_band(score, cutoff)]
 
 
 # ── shared Plotly layout ────────────────────────────────────────────────────
