@@ -70,9 +70,9 @@ def get_filtered_job(jobid: str, session: Session = Depends(get_session)):
 
 @jobs_router.patch("/filtered/{jobid}/status")
 def update_job_status(jobid: str, body: StatusUpdate, session: Session = Depends(get_session)):
-    updated = FilteredJobRepository(session).update_status(jobid, body.user_status)
-    if updated:
-        session.commit()
+    if not FilteredJobRepository(session).update_status(jobid, body.user_status):
+        raise HTTPException(status_code=404, detail="Job not found")
+    session.commit()
     return {"status": "ok"}
 
 

@@ -266,7 +266,12 @@ def _render_manual_add(nonce: int, starred: bool):
             else add_blocked_company(name.strip(), detail.strip() or None)
         )
         if created is None:
-            st.error(f"“{name.strip()}” is already on that list, or could not be added.")
+            hint = (
+                " A careers URL must start with http:// or https://."
+                if starred and careers_url.strip()
+                else ""
+            )
+            st.error(f"“{name.strip()}” is already on that list, or could not be added.{hint}")
             return
         st.session_state["add_company_nonce"] = nonce + 1
         _invalidate()
@@ -535,11 +540,14 @@ def _render_edit_form(company: dict, row_key: str):
         save, cancel, _ = st.columns([1.4, 1.4, 4])
         if save.form_submit_button("Save", width="stretch", type="primary"):
             if company["kind"] == STARRED:
-                update_starred_company(
+                saved = update_starred_company(
                     company["id"], careers_url=url.strip() or None, notes=notes.strip() or None
                 )
             else:
-                update_blocked_company(company["id"], reason=notes.strip() or None)
+                saved = update_blocked_company(company["id"], reason=notes.strip() or None)
+            if not saved:
+                st.error("Could not save. A careers URL must start with http:// or https://.")
+                return
             st.session_state.pop(f"edit_{row_key}", None)
             _invalidate()
             st.session_state["companies_flash"] = f"Saved {company['company_name'].title()}."

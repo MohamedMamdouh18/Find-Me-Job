@@ -1,0 +1,11 @@
+{
+  "name": "find-me-job-full-stack-tests",
+  "private": true,
+  "description": "Playwright regression specs from the 2026-09-17 QA pass. Run against the live docker compose stack.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}

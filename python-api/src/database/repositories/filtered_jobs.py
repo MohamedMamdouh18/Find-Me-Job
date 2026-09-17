@@ -92,12 +92,16 @@ class FilteredJobRepository:
         job = self.session.get(FilteredJob, job_id)
         if not job:
             return False
-        if job.user_status == user_status:
-            return True  # idempotent — no history entry for no-op
-        job.user_status = user_status
-        job.updated_at = now()
-        self.session.add(job)
-        self.session.add(JobStatusHistory(job_id=job_id, status=user_status.value))
+        # Compare-and-set in one statement: a read-then-write let two tabs sending the
+        # same status both see the old value and each write a history row.
+        changed = self.session.execute(
+            update(FilteredJob)
+            .where(FilteredJob.id == job_id, FilteredJob.user_status != user_status)
+            .values(user_status=user_status, updated_at=now())
+            .execution_options(synchronize_session="fetch")
+        ).rowcount
+        if changed:  # idempotent — no history entry for no-op
+            self.session.add(JobStatusHistory(job_id=job_id, status=user_status.value))
         return True
 
     def delete(self, job_id: str) -> bool:

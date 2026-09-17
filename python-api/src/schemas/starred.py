@@ -2,17 +2,19 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from .companies import CareersUrl, CompanyName
+
 
 class StarredCompanyCreate(BaseModel):
-    company_name: str
-    careers_url: Optional[str] = None
+    company_name: CompanyName
+    careers_url: CareersUrl = None
     notes: Optional[str] = None
 
 
 class StarredCompanyUpdate(BaseModel):
-    careers_url: Optional[str] = None
+    careers_url: CareersUrl = None
     notes: Optional[str] = None
 
 
 class StarredCompanyToggle(BaseModel):
-    company_name: str
+    company_name: CompanyName

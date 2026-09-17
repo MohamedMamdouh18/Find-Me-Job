@@ -65,9 +65,10 @@ AGENTS.md
 CLAUDE.md
 .agents/
 .claude/
-skills-lock.json
+.gstack/
 .scratch/
 docs/
+skills-lock.json
 CONTEXT.md
 
 # Leftover n8n state; the container is gone, the directory may still be on disk

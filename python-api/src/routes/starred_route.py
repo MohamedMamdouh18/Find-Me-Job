@@ -1,6 +1,8 @@
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 from sqlmodel import Session
 
 from ..database import get_session
@@ -43,7 +45,12 @@ def add_starred(
         careers_url=body.careers_url,
         notes=body.notes,
     )
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        # Another request (a second tab) inserted it between the check and the commit.
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Company already starred")
     session.refresh(entry)
     # A careers URL is only useful once we know what is behind it, and this is where one
     # arrives. Detection fetches a third-party page, so it runs after the response rather
@@ -90,5 +97,10 @@ def update_starred(
 @starred_router.post("/toggle")
 def toggle_starred(body: StarredCompanyToggle, session: Session = Depends(get_session)):
     is_starred, _ = StarredCompanyRepository(session).toggle(body.company_name)
-    session.commit()
+    try:
+        session.commit()
+    except (IntegrityError, StaleDataError):
+        # A concurrent toggle got there first and already produced the state this one
+        # was heading for: the insert collided, or the row was already deleted.
+        session.rollback()
     return {"is_starred": is_starred}

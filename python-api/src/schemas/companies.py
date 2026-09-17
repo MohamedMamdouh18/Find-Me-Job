@@ -1,6 +1,24 @@
-from typing import Optional
+from typing import Annotated, Optional
+from urllib.parse import urlparse
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel, StringConstraints
+
+# A blank name stored lowercase becomes a row nothing can match or display.
+CompanyName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def _careers_url(value: Optional[str]) -> Optional[str]:
+    """http(s) only, or blank to clear. The URL is fetched server-side and rendered
+    as a link, so javascript:, file: and friends must not get in."""
+    if not value:
+        return value
+    parsed = urlparse(value.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("careers_url must be an http(s) URL")
+    return value.strip()
+
+
+CareersUrl = Annotated[Optional[str], AfterValidator(_careers_url)]
 
 
 class CompanyUpdate(BaseModel):
@@ -11,6 +29,6 @@ class CompanyUpdate(BaseModel):
     scoring signal.
     """
 
-    careers_url: Optional[str] = None
+    careers_url: CareersUrl = None
     starred: Optional[bool] = None
     in_workflow: Optional[bool] = None

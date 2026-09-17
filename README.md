@@ -22,6 +22,7 @@ An automated job scraping and AI matching pipeline that runs on a schedule, scra
 - [Python API Reference](#python-api-reference)
 - [Estimated Token Usage Per Job](#estimated-token-usage-per-job)
 - [Docker Services](#docker-services)
+  - [Tests](#tests)
 - [Download Size](#download-size)
 - [License](#license)
 
@@ -562,7 +563,7 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 | `GET` | `/api/jobs/filtered` | `?ai_status=fit&user_status=new&easy_apply=true&min_score=0&max_score=100&search=...&company=...&website=...&location=...&starred_only=false&sort_by=updated_at&sort_order=desc&page=1&page_size=20&include_body=true&include_keywords=false` | Paginated, filterable, sortable job list. `include_body=false` omits `description` and `application_document` — the dashboard uses this for the list and fetches the full record only when you open a job. `include_keywords=true` adds a `keywords` array per row — the CV skills that appear in that posting. `page_size` is capped at 200. |
 | `GET` | `/api/jobs/filtered/options` | - | Distinct company and website values for filter dropdowns |
 | `GET` | `/api/jobs/filtered/{jobid}` | - | Get a single filtered job by ID |
-| `PATCH` | `/api/jobs/filtered/{jobid}/status` | `{"user_status": "applied"}` | Update user tracking status (see the [user status list](#database-schema)) |
+| `PATCH` | `/api/jobs/filtered/{jobid}/status` | `{"user_status": "applied"}` | Update user tracking status (see the [user status list](#database-schema)). 404 if the job does not exist. Setting the current status again is a no-op that writes no history |
 | `GET` | `/api/jobs/filtered/{jobid}/history` | - | Full `user_status` transition timeline for one job |
 | `GET` | `/api/jobs/filtered/{jobid}/match` | - | `{matched, missing, skills_known}` — which of the skills extracted from your CV this posting names. A literal keyword overlap, **not** the scorer's reasoning: the scoring node returns only `{score, coverLetter}` |
 | `DELETE` | `/api/jobs/filtered/{jobid}` | - | Delete a job from filtered_jobs |
@@ -602,9 +603,9 @@ All endpoints are prefixed with `/api`. On startup, the API automatically runs A
 | `GET` | `/api/starred` | `?search=acme` | List starred companies |
 | `GET` | `/api/starred/names` | - | All starred names (lowercase), for bulk client-side checks |
 | `GET` | `/api/starred/check` | `?company=Acme` | Returns `{"is_starred": true/false}` |
-| `POST` | `/api/starred` | `{"company_name": "...", "careers_url": "...", "notes": "..."}` | Add a company (409 if already starred) |
-| `POST` | `/api/starred/toggle` | `{"company_name": "..."}` | Star if missing, unstar if present |
-| `PATCH` | `/api/starred/{id}` | `{"careers_url": "...", "notes": "..."}` | Update URL / notes |
+| `POST` | `/api/starred` | `{"company_name": "...", "careers_url": "...", "notes": "..."}` | Add a company (409 if already starred, including a second tab racing the first). 422 on a blank name or a `careers_url` that is not http(s) |
+| `POST` | `/api/starred/toggle` | `{"company_name": "..."}` | Star if missing, unstar if present. 422 on a blank name |
+| `PATCH` | `/api/starred/{id}` | `{"careers_url": "...", "notes": "..."}` | Update URL / notes. 422 on a `careers_url` that is not http(s) |
 | `DELETE` | `/api/starred/{id}` | - | Remove a starred company |
 
 **Companies** (`/api/companies`) — the same rows as `/api/starred`, addressed as the company
@@ -630,8 +631,8 @@ browser, or `robots.txt` asks us not to read them; `fetch_note` says which). Onl
 | `GET` | `/api/blocked` | `?search=acme` | List blocked companies |
 | `GET` | `/api/blocked/names` | - | All blocked names (lowercase) |
 | `GET` | `/api/blocked/check` | `?company=Acme` | Returns `{"is_blocked": true/false}` |
-| `POST` | `/api/blocked` | `{"company_name": "...", "reason": "..."}` | Block a company (409 if already blocked) |
-| `POST` | `/api/blocked/toggle` | `{"company_name": "..."}` | Block if missing, unblock if present |
+| `POST` | `/api/blocked` | `{"company_name": "...", "reason": "..."}` | Block a company (409 if already blocked, including a second tab racing the first). 422 on a blank name |
+| `POST` | `/api/blocked/toggle` | `{"company_name": "..."}` | Block if missing, unblock if present. Matched like `/check`, so unblocking "Acme, Inc." also removes "acme". 422 on a blank name |
 | `PATCH` | `/api/blocked/{id}` | `{"reason": "..."}` | Update the reason |
 | `DELETE` | `/api/blocked/{id}` | - | Unblock |
 
@@ -655,7 +656,7 @@ browser, or `robots.txt` asks us not to read them; `fetch_note` says which). Onl
 | `PUT` | `/api/settings` | `{"LLM_MODEL": "gpt-4o-mini", "FILTERING_SCORE": 55}` | Partial update. 400 naming the key on an invalid or unknown one. On a secret, `""` means "leave unchanged" and `null` clears it. Writing `FILTERING_SCORE` re-labels existing jobs and returns `{"updated": [...], "reclassified": n}` |
 | `POST` | `/api/settings/notifications/test` | `{"channel": "telegram"}` | Posts a fixed message through one channel and reports the HTTP result |
 | `GET` | `/api/settings/schedule` | - | Current schedule, `next_run_at`, timezone, and any overlap `conflict` |
-| `PUT` | `/api/settings/schedule` | `{"enabled": true, "mode": "interval", "every_n_hours": 3, "at_minute": 30, "at_time": "01:00", "retention_at_time": "00:00"}` | Partial update. Validates, stores, and reschedules live — no restart. 400 on an invalid value or a daily time that collides with retention. The six schedule keys are refused by the generic `PUT` above, so there is one writer per key |
+| `PUT` | `/api/settings/schedule` | `{"enabled": true, "mode": "interval", "every_n_hours": 3, "at_minute": 30, "at_time": "01:00", "retention_at_time": "00:00"}` | Partial update. Validates, stores, and reschedules live — no restart. 400 on an invalid value (times are ASCII `HH:MM`) or a daily time that collides with retention. The six schedule keys are refused by the generic `PUT` above, so there is one writer per key |
 
 **Sources** (`/api/sources`):
 
@@ -875,6 +876,28 @@ docker compose logs -f python-api # Tail API logs
 docker compose down               # Stop everything
 docker compose down -v            # Stop and wipe all data (database)
 ```
+
+### Tests
+
+Two suites. The unit and API tests run inside the API image against in-memory SQLite:
+
+```bash
+docker compose exec python-api python -m pytest tests
+```
+
+`full-stack-tests/` is a Playwright suite that drives the real dashboard and API, so the
+stack must be running and Node must be installed on the host:
+
+```bash
+cd full-stack-tests
+npm install
+npx playwright install chromium   # first time only
+npx playwright test
+```
+
+It writes to the live `data/db/jobs.db`: every test creates `qa-e2e-*` rows and deletes
+them afterwards, and tests run one at a time. A run killed midway can leave such a row
+behind; remove it from the Companies page or with `DELETE /api/starred/{id}`.
 
 ---
 

@@ -60,11 +60,22 @@ class BlockedCompanyRepository:
         return True
 
     def toggle(self, company_name: str) -> tuple[bool, BlockedCompany | None]:
-        """Remove if present, add if missing. Returns (is_blocked_after, entry_or_none)."""
+        """Remove if present, add if missing. Returns (is_blocked_after, entry_or_none).
+
+        Presence is judged the way is_blocked judges it, and unblocking removes every
+        spelling that matches: otherwise "Acme, Inc." reports unblocked while "acme" keeps
+        dropping its postings.
+        """
         name_lower = company_name.lower().strip()
-        existing = self.find_by_name(name_lower)
-        if existing:
-            self.session.delete(existing)
+        wanted = normalise_company(company_name)
+        matches = [
+            row for row in self.get_all()
+            if row.company_name == name_lower
+            or (wanted and normalise_company(row.company_name) == wanted)
+        ]
+        if matches:
+            for row in matches:
+                self.session.delete(row)
             return False, None
         entry = BlockedCompany(company_name=name_lower)
         self.session.add(entry)

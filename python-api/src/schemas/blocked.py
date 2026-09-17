@@ -2,9 +2,11 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from .companies import CompanyName
+
 
 class BlockedCompanyCreate(BaseModel):
-    company_name: str
+    company_name: CompanyName
     reason: Optional[str] = None
 
 
@@ -13,4 +15,4 @@ class BlockedCompanyUpdate(BaseModel):
 
 
 class BlockedCompanyToggle(BaseModel):
-    company_name: str
+    company_name: CompanyName

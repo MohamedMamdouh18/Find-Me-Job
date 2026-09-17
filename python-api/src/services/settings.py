@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import time
 from typing import Any, Callable
@@ -68,9 +69,11 @@ def _parse_minute(raw: str) -> int:
 
 
 def _parse_clock(raw: str) -> time:
-    hour, _, minute = raw.strip().partition(":")
-    parsed = time(int(hour), int(minute))
-    return parsed
+    # int() accepts any Unicode digit, so "١٢:٠٠" would parse and be stored as typed.
+    match = re.fullmatch(r"([0-9]{1,2}):([0-9]{1,2})", raw.strip())
+    if not match:
+        raise ValueError(f"time must be HH:MM, got {raw!r}")
+    return time(int(match.group(1)), int(match.group(2)))
 
 
 def _parse_text(raw: str) -> str:
