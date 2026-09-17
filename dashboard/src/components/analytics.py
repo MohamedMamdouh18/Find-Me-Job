@@ -134,7 +134,7 @@ def _match_rate_donut(stats: dict) -> go.Figure:
     fit_pct = round(fit / total * 100) if total else 0
 
     if not total:
-        return _no_data("No scored jobs yet")
+        return _no_data("No scored jobs yet<br>Run the pipeline from Settings → Workflow.")
 
     fig = go.Figure(
         data=[
@@ -177,7 +177,7 @@ def _score_histogram(bins: list[dict], median: int) -> go.Figure:
     distribution sits just under the cutoff, which is the case for lowering it.
     """
     if not bins or not any(b.get("count", 0) for b in bins):
-        return _no_data("No scored jobs yet")
+        return _no_data("No scored jobs yet<br>Run the pipeline from Settings → Workflow.")
 
     labels = [f"{b['start']}–{b['end']}" for b in bins]
     counts = [b["count"] for b in bins]
@@ -248,7 +248,9 @@ def _conversion_funnel(funnel: dict) -> go.Figure:
         ("Offers", funnel["offers"]),
     ]
     if not funnel["matched"]:
-        return _no_data("Nothing scored yet")
+        return _no_data(
+            "No matched jobs yet<br>Run the pipeline or lower your cutoff."
+        )
 
     labels = [s[0] for s in stages]
     values = [s[1] for s in stages]
@@ -300,7 +302,7 @@ def _status_breakdown_bar(stats: dict) -> go.Figure:
         if stats.get(s, 0) > 0
     ]
     if not entries:
-        return _no_data("No status data yet")
+        return _no_data("No scored jobs yet<br>Run the pipeline from Settings → Workflow.")
 
     entries.reverse()
     labels = [e[0] for e in entries]
@@ -337,7 +339,9 @@ def _source_bars(source_data: list[dict]) -> go.Figure:
     """Which board actually produces applications."""
     source_data = [d for d in source_data if d.get("applied", 0) > 0]
     if not source_data:
-        return _no_data("No applications recorded yet")
+        return _no_data(
+            "No applications yet<br>Set a job to Applied to see its source."
+        )
 
     source_data = sorted(source_data, key=lambda d: d["applied"])
     sources = [d["source"] for d in source_data]
@@ -357,7 +361,7 @@ def _source_bars(source_data: list[dict]) -> go.Figure:
                 cliponaxis=False,
                 customdata=totals,
                 hovertemplate=(
-                    "<b>%{y}</b><br>Applied: %{x}<br>Scraped: %{customdata}<extra></extra>"
+                    "<b>%{y}</b><br>Applied: %{x}<br>Scored: %{customdata}<extra></extra>"
                 ),
             )
         ]
@@ -380,7 +384,7 @@ def _top_companies_bar(companies: list[dict], limit: int = 12) -> go.Figure:
     nothing to rank, but the best score always separates them.
     """
     if not companies:
-        return _no_data("No company data yet")
+        return _no_data("No company data yet<br>Run the pipeline from Settings → Workflow.")
 
     rows = sorted(
         companies, key=lambda c: (c.get("best_score") or 0, c["job_count"]), reverse=True
@@ -521,17 +525,19 @@ def render_analytics():
     section_title("Match quality")
     c1, c2 = st.columns([1, 1.25])
     with c1:
+        st.caption(f"Scored jobs at or above your cutoff of {library.match_cutoff()}.")
         st.plotly_chart(
             _match_rate_donut(counts), width="stretch", config=PLOT_CONFIG, key="chart_match_rate"
         )
     with c2:
+        st.caption("Dotted line: your cutoff. Solid line: median score.")
         st.plotly_chart(
             _score_histogram(counts["bins"], counts["median_score"]),
             width="stretch", config=PLOT_CONFIG, key="chart_score_dist",
         )
     st.markdown(
         f'<div class="chart-note">Median {counts["median_score"]}'
-        f'<span class="mono-sep">·</span>{counts["strong"]} at or above {STRONG_SCORE}'
+        f'<span class="mono-sep">·</span>{counts["strong"]} strong matches ({STRONG_SCORE}+)'
         f'<span class="mono-sep">·</span>{counts["below_cutoff"]} below your cutoff of '
         f"{library.match_cutoff()}</div>",
         unsafe_allow_html=True,
@@ -540,6 +546,7 @@ def render_analytics():
     section_title("Your pipeline")
     c3, c4 = st.columns(2)
     with c3:
+        st.caption("Applied onward counts every job that ever reached that stage.")
         st.plotly_chart(
             _conversion_funnel(funnel), width="stretch", config=PLOT_CONFIG, key="chart_funnel"
         )
@@ -551,6 +558,7 @@ def render_analytics():
     section_title("Where jobs come from")
     c5, c6 = st.columns([1, 1.15])
     with c5:
+        st.caption("Applied jobs out of all scored jobs, per source.")
         st.plotly_chart(
             _source_bars(library.sources()),
             width="stretch", config=PLOT_CONFIG, key="chart_sources",
@@ -562,6 +570,7 @@ def render_analytics():
         )
 
     section_title("Activity")
+    st.caption("Jobs moved to Applied, Email Sent or Referral each day.")
     st.plotly_chart(
         _yearly_heatmap(library.daily_applied(HEATMAP_DAYS)),
         width="stretch", config=PLOT_CONFIG, key="chart_activity",

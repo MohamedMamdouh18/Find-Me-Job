@@ -2,7 +2,9 @@ import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+import json
+
+from pydantic import BaseModel, field_validator
 from docx import Document
 from sqlmodel import Session
 
@@ -18,7 +20,38 @@ class KeywordsRequest(BaseModel):
     keywords: str
 
 
-from ..services.cv import _docx_text
+MAX_KEYWORD_LENGTH = 100
+MAX_KEYWORDS_PER_LIST = 300
+
+
+def _clean_keywords(values: list[str]) -> list[str]:
+    """Trimmed, non-blank, de-duplicated ignoring case, first spelling kept."""
+    seen: set[str] = set()
+    cleaned = []
+    for value in values:
+        term = value.strip()
+        if not term or term.lower() in seen:
+            continue
+        if len(term) > MAX_KEYWORD_LENGTH:
+            raise ValueError(f"keyword longer than {MAX_KEYWORD_LENGTH} characters: {term[:20]}…")
+        seen.add(term.lower())
+        cleaned.append(term)
+    if len(cleaned) > MAX_KEYWORDS_PER_LIST:
+        raise ValueError(f"at most {MAX_KEYWORDS_PER_LIST} keywords per list")
+    return cleaned
+
+
+class KeywordsUpdate(BaseModel):
+    titles: list[str]
+    skills: list[str]
+
+    @field_validator("titles", "skills")
+    @classmethod
+    def _clean(cls, values: list[str]) -> list[str]:
+        return _clean_keywords(values)
+
+
+from ..services.cv import _docx_text, cv_text_hash
 
 
 @cv_router.get("")
@@ -118,3 +151,32 @@ def save_keywords(body: KeywordsRequest, session: Session = Depends(get_session)
     repo.save(body.cv_hash, body.keywords)
     session.commit()
     return {"status": "ok"}
+
+
+@cv_router.put("/keywords")
+def update_keywords(body: KeywordsUpdate, session: Session = Depends(get_session)):
+    """Replace the keyword lists with the user's own. Stored against the current CV's
+    hash, so the next run treats them as up to date instead of re-extracting over them;
+    uploading a different CV still triggers a fresh extraction."""
+    if not os.path.isfile(CV_PATH):
+        raise HTTPException(status_code=409, detail="Upload a CV before editing its keywords.")
+    try:
+        cv_text = _docx_text(Document(CV_PATH))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read the CV ({e}).")
+    if not cv_text.strip():
+        raise HTTPException(status_code=400, detail="The CV contains no readable text.")
+
+    repo = CVKeywordsRepository(session)
+    repo.save(cv_text_hash(cv_text), json.dumps({"titles": body.titles, "skills": body.skills}))
+    session.commit()
+    row = repo.get_latest()
+    return {"keywords": row.keywords, "cv_hash": row.cv_hash, "updated_at": row.updated_at}
+
+
+@cv_router.delete("/keywords")
+def delete_keywords(session: Session = Depends(get_session)):
+    """Forget the keywords; the next run extracts them from the CV again."""
+    deleted = CVKeywordsRepository(session).delete()
+    session.commit()
+    return {"deleted": deleted}

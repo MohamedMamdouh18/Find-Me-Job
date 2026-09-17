@@ -3,6 +3,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from ..models import CVKeywords
+from ...shared import now
 
 
 class CVKeywordsRepository:
@@ -22,6 +23,14 @@ class CVKeywordsRepository:
         if existing:
             existing.cv_hash = cv_hash
             existing.keywords = keywords
+            existing.updated_at = now()
             self.session.add(existing)
         else:
             self.session.add(CVKeywords(id=1, cv_hash=cv_hash, keywords=keywords))
+
+    def delete(self) -> bool:
+        """Forget the keywords, so the next run extracts them from the CV again."""
+        rows = self.session.exec(select(CVKeywords)).all()
+        for row in rows:
+            self.session.delete(row)
+        return bool(rows)

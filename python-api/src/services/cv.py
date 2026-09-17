@@ -1,3 +1,6 @@
+import hashlib
+
+
 def docx_text(doc) -> str:
     """python-docx keeps table cells out of `doc.paragraphs`, and CVs routinely put
     skills and dates in tables, so reading paragraphs alone silently drops them."""
@@ -11,3 +14,9 @@ def docx_text(doc) -> str:
 
 
 _docx_text = docx_text
+
+
+def cv_text_hash(cv_text: str) -> str:
+    """The identity of a CV's content. Keywords are stored against it, so the pipeline
+    and a manual keyword edit must hash the same way or the edit is re-extracted over."""
+    return hashlib.sha256(cv_text.encode("utf-8")).hexdigest()

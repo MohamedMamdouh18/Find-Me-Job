@@ -203,8 +203,7 @@ def render_job_detail(job: dict, starred_names, blocked_names, on_change):
         st.selectbox(
             "Application status",
             USER_STATUSES,
-            help="Where you are with this job. You set this — the AI never changes it. "
-                 "Moving it is what fills the funnel and the activity calendar on Analytics.",
+            help="Set by you, never the AI. Feeds the Analytics funnel.",
             key=status_key,
             label_visibility="collapsed",
             format_func=lambda s: USER_STATUS_LABELS.get(s, s),
@@ -215,13 +214,18 @@ def render_job_detail(job: dict, starred_names, blocked_names, on_change):
     description = job.get("description")
     if description:
         st.markdown('<div class="detail-label">Job description</div>', unsafe_allow_html=True)
+        if matched:
+            st.caption("Highlighted: your CV skills.")
         st.markdown(
             f'<div class="posting">{format_description(description, matched)}</div>',
             unsafe_allow_html=True,
         )
 
     if job.get("application_document"):
-        with st.expander("✉️ Application document"):
+        with st.expander("✉️ Cover letter (AI-written)"):
+            st.caption(
+                "AI-written. Edits here aren't saved — copy or download."
+            )
             st.text_area(
                 "Application document",
                 job["application_document"],
@@ -256,9 +260,7 @@ def _render_evidence(score, matched: list[str], skills_known: int):
     )
     if not skills_known:
         st.markdown(
-            '<div class="mono-note">No CV keywords have been extracted yet, so there is '
-            "nothing to compare this posting against. They are extracted on the first run "
-            "after a CV change.</div>",
+            '<div class="mono-note">No CV skills extracted yet. They appear after the next run.</div>',
             unsafe_allow_html=True,
         )
         return
@@ -279,10 +281,8 @@ def _render_evidence(score, matched: list[str], skills_known: int):
         )
     hits = len(matched)
     st.caption(
-        f"{hits} of your {skills_known} extracted CV skills "
-        f"{'appears' if hits == 1 else 'appear'} in this posting. That is a keyword overlap, "
-        "not the scorer's reasoning — the scoring step records a score and a cover letter and "
-        "no rationale, so this is evidence for the number rather than an explanation of it."
+        f"Score: the AI's 0–100 fit to your CV. Above: {hits} of your "
+        f"{skills_known} CV skills this posting mentions."
     )
 
 
@@ -297,6 +297,7 @@ def _render_actions(job, job_id, company, is_starred, is_blocked, on_change):
                 width="stretch",
                 type="primary",
                 icon=":material/open_in_new:",
+                help="Opens on the original site, in a new tab.",
             )
         else:
             st.button("No link on this posting", disabled=True, width="stretch", key=f"nolink_{job_id}")
@@ -305,8 +306,7 @@ def _render_actions(job, job_id, company, is_starred, is_blocked, on_change):
             "★ Unstar" if is_starred else "☆ Star",
             key=f"star_{job_id}",
             width="stretch",
-            help="Starred companies get a ★ in the list and their own view. Starring does "
-                 "not change how a job is scored.",
+            help="Marks the company with ★ and adds it to the Starred view.",
         ):
             toggle_starred_company(company)
             if on_change:
@@ -319,8 +319,7 @@ def _render_actions(job, job_id, company, is_starred, is_blocked, on_change):
             width="stretch",
             help="Stop blocking this company"
             if is_blocked
-            else "New postings from this company are dropped before scoring. Jobs already "
-                 "in your list stay.",
+            else "Skip future postings from this company. Listed jobs stay.",
         ):
             toggle_blocked_company(company)
             if on_change:
@@ -353,8 +352,7 @@ def _render_delete(job_id: str, on_change):
         with del_col:
             if st.button(
                 "Delete job", key=f"del_{job_id}", width="stretch", icon=":material/delete:",
-                help="Removes it from your list for good. The posting stays remembered, so no "
-                     "source will add it again.",
+                help="Removes it for good. It won't be re-added.",
             ):
                 st.session_state[confirm_key] = True
                 st.rerun()

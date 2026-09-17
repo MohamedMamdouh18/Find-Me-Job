@@ -5,35 +5,50 @@ from api import add_manual_job
 from components.jobs_filters import render_jobs_filters
 from components.jobs_list import invalidate_jobs_cache, render_jobs_list
 from components.ui import page_header, summary_line
-from constants import USER_STATUSES, USER_STATUS_LABELS
+from constants import STRONG_SCORE, USER_STATUSES, USER_STATUS_LABELS
 
 
 @st.dialog("Add job", width="small")
 def _add_job_dialog():
-    st.caption("Manually tracked jobs skip scraping and scoring and land straight in your list.")
+    st.caption("Goes straight into your list, unscored.")
 
     # Widget state cannot be reassigned once the widget exists in the same run, so
     # the fields are emptied by moving to a new set of keys instead of clearing them.
     n = st.session_state.get("mj_nonce", 0)
 
-    title = st.text_input("Job title *", placeholder="Software Engineer", key=f"mj_title_{n}")
-    company = st.text_input("Company *", placeholder="Acme Corp", key=f"mj_company_{n}")
+    title = st.text_input(
+        "Job title *", placeholder="Software Engineer", key=f"mj_title_{n}"
+    )
+    company = st.text_input(
+        "Company *", placeholder="Acme Corp", key=f"mj_company_{n}",
+        help="Star and block match on this name, so spell it consistently.",
+    )
 
     c1, c2 = st.columns(2)
     with c1:
-        location = st.text_input("Location", placeholder="Remote", key=f"mj_location_{n}")
+        location = st.text_input(
+            "Location", placeholder="Remote", key=f"mj_location_{n}",
+        )
     with c2:
         status = st.selectbox(
             "Application status",
             USER_STATUSES,
             key=f"mj_status_{n}",
             format_func=lambda s: USER_STATUS_LABELS.get(s, s.title()),
+            help="You can change it later.",
         )
 
-    applylink = st.text_input("Application link", placeholder="https://…", key=f"mj_link_{n}")
-    easy_apply = st.checkbox("Easy Apply", key=f"mj_easy_{n}")
+    applylink = st.text_input(
+        "Application link", placeholder="https://…", key=f"mj_link_{n}",
+        help="Used by the Open posting button.",
+    )
+    easy_apply = st.checkbox(
+        "Easy Apply", key=f"mj_easy_{n}",
+        help="Shows the job in the Easy Apply view.",
+    )
     description = st.text_area(
-        "Notes or description", placeholder="Optional", key=f"mj_description_{n}", height=100
+        "Notes or description", placeholder="Optional", key=f"mj_description_{n}", height=100,
+        help="Shown as the job description.",
     )
 
     cancel_col, add_col = st.columns(2)
@@ -67,7 +82,10 @@ def render_jobs_tab():
         "Jobs", "Everything the pipeline matched, and where each one stands.", actions=1, action_width=1.5
     )
     with add_col:
-        if st.button("Add job", width="stretch", type="primary", icon=":material/add:", key="jobs_add"):
+        if st.button(
+            "Add job", width="stretch", type="primary", icon=":material/add:", key="jobs_add",
+            help="Track a job you found elsewhere.",
+        ):
             _add_job_dialog()
 
     counts = library.stats()
@@ -78,7 +96,7 @@ def render_jobs_tab():
             (counts["strong"], "strong"),
             (counts["new"], "new"),
         ],
-        trailing=f"matched means scored {library.match_cutoff()} or above",
+        trailing=f"matched ≥ {library.match_cutoff()} · strong ≥ {STRONG_SCORE}",
     )
 
     toast = st.session_state.pop("job_toast", None)

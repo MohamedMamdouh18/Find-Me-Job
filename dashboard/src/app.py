@@ -7,6 +7,7 @@ from components.analytics import render_analytics
 from components.jobs_tab import render_jobs_tab
 from components.companies_tab import render_companies_tab
 from components.settings_tab import render_settings_tab
+from components.getting_started import render_getting_started, render_guide_button
 
 st.set_page_config(
     page_title="Find Me a Job",
@@ -28,4 +29,7 @@ PAGE_RENDERERS = {
     "Settings": render_settings_tab,
 }
 
-PAGE_RENDERERS[render_sidebar()]()
+page = render_sidebar()
+render_guide_button()
+render_getting_started()
+PAGE_RENDERERS[page]()

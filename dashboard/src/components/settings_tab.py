@@ -23,6 +23,7 @@ from api import (
     export_jobs,
     get_current_run,
     get_cv_info,
+    delete_cv_keywords,
     get_cv_keywords,
     get_filtered_jobs,
     get_param,
@@ -40,6 +41,7 @@ from api import (
     stop_run,
     test_notification,
     trigger_run,
+    update_cv_keywords,
     upload_cv,
 )
 from constants import BLUE
@@ -172,7 +174,7 @@ def _flash(kind: str, msg: str):
 def _render_flash():
     flash = st.session_state.pop("settings_flash", None)
     if flash:
-        {"success": st.success, "error": st.error, "info": st.info}.get(
+        {"success": st.success, "error": st.error, "info": st.info, "warning": st.warning}.get(
             flash["kind"], st.info
         )(flash["msg"])
 
@@ -250,7 +252,7 @@ def _status_strip():
                 "Scored",
                 f"{total:,}",
                 f"{matched:,} matched",
-                tip="Rows in the jobs table. Matched means the AI scored them at or above your cutoff.",
+                tip="Matched: scored at or above your cutoff.",
             ),
             unsafe_allow_html=True,
         )
@@ -259,7 +261,7 @@ def _status_strip():
                 "Queue",
                 f"{queue:,}",
                 "waiting to be scored" if queue else "empty",
-                tip="Scraped but not yet scored. They appear under Jobs as the scorer works through them.",
+                tip="Scraped jobs waiting to be scored.",
             ),
             unsafe_allow_html=True,
         )
@@ -282,11 +284,11 @@ def _duration(started: str | None, finished: str | None) -> str:
 
 
 PAUSE_TIP = (
-    "Lets the job being scored finish and saves it, then stops. Everything not yet scored stays queued, so Resume picks up exactly where this left off."
+    "Finishes the current job, then pauses. Resume continues the queue."
 )
 
 STOP_TIP = (
-    "Kills the job being scored straight away, losing that one result. The run ends and cannot be resumed - starting again runs a full fresh cycle. The nightly schedule is unaffected."
+    "Ends the run now; the current job's result is lost. Cannot be resumed."
 )
 
 
@@ -334,7 +336,7 @@ def _render_workflow():
     with st.container(border=True):
         section_head(
             "Job Pipeline",
-            "Scrapes configured job sources, extracts CV keywords, scores job matches, and prepares applications.",
+            "Scrapes your sources and scores new jobs against your CV.",
         )
 
         if curr:
@@ -348,7 +350,7 @@ def _render_workflow():
             st.markdown(f"**{escape(detail)}**")
 
             if rem is not None and rem > 0:
-                st.info(f"Waiting {rem}s before next scoring call (rate limit pacing)")
+                st.info(f"Next scoring call in {rem}s")
 
             if total > 0:
                 pct = min(1.0, max(0.0, done / total))
@@ -369,8 +371,7 @@ def _render_workflow():
                 # A toast vanishes in seconds while the pause waits for the current
                 # LLM call to return, which reads as "the click did nothing".
                 st.warning(
-                    "Pausing — finishing the step in flight, then stopping. "
-                    "A scrape or a scoring call has to return first.",
+                    "Pausing after the current step finishes.",
                     icon=":material/pause_circle:",
                 )
             else:
@@ -389,16 +390,13 @@ def _render_workflow():
                         "Stopping now", "Could not stop",
                         tooltip=STOP_TIP,
                     )
-                st.caption(
-                    "Pause finishes the current job and can be resumed. "
-                    "Stop kills it now and cannot be resumed."
-                )
+                st.caption("Pause can be resumed. Stop cannot.")
         elif (health.get("last_run") or {}).get("status") == "paused":
             queued = health.get("queue", 0)
             st.markdown("### Paused")
             st.markdown(
                 f"**{queued:,} job{'' if queued == 1 else 's'} still queued.** "
-                "The scheduled run will not start while the workflow is paused."
+                "Scheduled runs are skipped while paused."
             )
             resume_col, fresh_col, _ = st.columns([2, 2, 3], vertical_alignment="center")
             with resume_col:
@@ -413,10 +411,7 @@ def _render_workflow():
                     "Fresh run started in background", "Failed to start run",
                     invalidate=True,
                 )
-            st.caption(
-                "Resume scores the leftover queue without re-scraping. "
-                "Start fresh run scrapes every source again first."
-            )
+            st.caption("Resume scores the queue. Start fresh run scrapes again first.")
 
             st.markdown('<div class="card-rule"></div>', unsafe_allow_html=True)
             _render_last_run(health.get("last_run"))
@@ -427,10 +422,23 @@ def _render_workflow():
                     "Run now", "run_now", ":material/play_arrow:", trigger_run,
                     "Run started in background", "Failed to start run",
                     primary=True,
+                    tooltip="Scrapes enabled sources and scores new jobs, in the background.",
                 )
+            _render_run_readiness()
 
             st.markdown('<div class="card-rule"></div>', unsafe_allow_html=True)
             _render_last_run(health.get("last_run"))
+
+
+def _render_run_readiness():
+    """What would make Run now pointless, said before the user presses it."""
+    missing = []
+    if not _cached_cv_info().get("exists"):
+        missing.append("upload your CV on the **CV** tab")
+    if not (library.settings().get("LLM_API_KEY") or {}).get("set"):
+        missing.append("add an AI **API key** on the **Config** tab")
+    if missing:
+        st.warning("Before running: " + " and ".join(missing) + ".")
 
 
 def _render_last_run(run: dict | None):
@@ -459,7 +467,7 @@ def _render_cv():
         if not info.get("exists"):
             empty_state(
                 "📄", "No CV uploaded",
-                "Scoring cannot run without one. Upload a <b>.docx</b> below to start matching.",
+                "Upload a <b>.docx</b> below to start scoring.",
             )
         else:
             modified = info.get("modified_at")
@@ -486,9 +494,11 @@ def _render_cv():
                     key="cv_download",
                 )
 
-        _render_keywords()
+        _render_keywords(bool(info.get("exists")))
 
-        with st.expander("Replace CV"):
+        # Open by default when there is no CV: uploading is the only thing to do here.
+        with st.expander("Replace CV" if info.get("exists") else "Upload CV",
+                         expanded=not info.get("exists")):
             _render_cv_upload(info)
 
 
@@ -501,49 +511,123 @@ def _from_epoch(value):
         return None
 
 
-def _render_keywords():
-    st.markdown('<div class="detail-label">Extracted keywords</div>', unsafe_allow_html=True)
+KEYWORDS_EXPLAINED = (
+    "Decide which RemoteOK, Himalayas and We Work Remotely jobs get scored. "
+    "They don't change the score."
+)
+
+
+def _render_keywords(cv_exists: bool):
+    st.markdown('<div class="detail-label">CV keywords</div>', unsafe_allow_html=True)
+    st.caption(KEYWORDS_EXPLAINED)
     row = _cached_keywords()
     raw = row.get("keywords")
-    if not raw:
+
+    titles: list[str] = []
+    skills: list[str] = []
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            titles = [str(t) for t in parsed.get("titles", [])]
+            skills = [str(s) for s in parsed.get("skills", [])]
+        except (ValueError, AttributeError):
+            st.warning("The stored keywords are unreadable. Save new ones below, or re-extract them.")
+
+    if not cv_exists:
         st.markdown(
-            '<div class="mono-note">None yet — they are extracted on the first run '
-            "after a CV change.</div>",
+            '<div class="mono-note">Upload a CV first.</div>',
             unsafe_allow_html=True,
         )
         return
 
-    try:
-        parsed = json.loads(raw)
-        titles = [str(t) for t in parsed.get("titles", [])]
-        skills = [str(s) for s in parsed.get("skills", [])]
-    except (ValueError, AttributeError):
+    if raw:
         st.markdown(
-            '<div class="mono-note">Stored keywords are not valid JSON.</div>',
+            f'<div class="mono-note">{len(titles)} titles<span class="mono-sep">·</span>'
+            f'{len(skills)} skills<span class="mono-sep">·</span>'
+            f"updated {escape(relative_time(row.get('updated_at')))}</div>",
             unsafe_allow_html=True,
         )
+    else:
+        st.markdown(
+            '<div class="mono-note">None yet. Extracted on the next run, or add your own.</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Keyed on the stored version so a save or re-extract shows the new lists instead
+    # of the widget state left over from before.
+    version = row.get("updated_at") or "none"
+    with st.form(f"cv_keywords_form_{version}", border=False):
+        new_titles = st.multiselect(
+            "Job titles",
+            options=titles,
+            default=titles,
+            accept_new_options=True,
+            placeholder="Type a job title and press Enter",
+            help="Roles you want, e.g. Backend Engineer. Feed jobs with a matching title are kept.",
+        )
+        new_skills = st.multiselect(
+            "Skills",
+            options=skills,
+            default=skills,
+            accept_new_options=True,
+            placeholder="Type a skill and press Enter",
+            help="Tools and technologies, e.g. Python. Feed jobs mentioning two or more are kept.",
+        )
+        st.caption("Replacing the CV re-extracts and overwrites these.")
+        save_col, _ = st.columns([2, 5])
+        submitted = save_col.form_submit_button(
+            "Save keywords", type="primary", width="stretch", icon=":material/save:"
+        )
+
+    if submitted:
+        ok, msg = update_cv_keywords(new_titles, new_skills)
+        _invalidate_settings()
+        if not ok:
+            _flash("error", f"Could not save keywords: {msg}")
+        elif not (new_titles or new_skills):
+            _flash("warning", "Keywords cleared. Feed jobs are dropped until you add some.")
+        else:
+            _flash("success", f"Saved {len(new_titles)} titles and {len(new_skills)} skills. "
+                              "They apply from the next run.")
+        st.rerun()
+
+    if raw:
+        _render_reextract()
+
+
+def _render_reextract():
+    key = "cv_keywords_reextract_confirm"
+    if not st.session_state.get(key):
+        if st.button(
+            "Re-extract from CV",
+            icon=":material/restart_alt:",
+            key="cv_keywords_reextract",
+            help="Discards these keywords and your edits; the next run extracts them again.",
+        ):
+            st.session_state[key] = True
+            st.rerun()
         return
 
-    tags = "".join(f'<span class="tag tag-strong">{escape(t)}</span>' for t in titles[:6])
-    tags += "".join(f'<span class="tag">{escape(s)}</span>' for s in skills[:18])
-    extra = max(0, len(skills) - 18)
-    if extra:
-        tags += f'<span class="tag tag-quiet">+{extra} more</span>'
-    st.markdown(f'<div class="tag-row">{tags}</div>', unsafe_allow_html=True)
-    st.markdown(
-        f'<div class="mono-note">{len(titles)} titles<span class="mono-sep">·</span>'
-        f'{len(skills)} skills<span class="mono-sep">·</span>'
-        f"extracted {escape(relative_time(row.get('updated_at')))}</div>",
-        unsafe_allow_html=True,
-    )
+    st.warning("Delete these keywords? Your edits are lost; the next run re-extracts them.")
+    yes_col, no_col, _ = st.columns([1.4, 1.4, 4])
+    if yes_col.button("Delete", type="primary", width="stretch", key="cv_keywords_reextract_yes"):
+        st.session_state.pop(key, None)
+        ok = delete_cv_keywords()
+        _invalidate_settings()
+        _flash("success" if ok else "error",
+               "Keywords deleted. The next run extracts them from your CV."
+               if ok else "Could not delete the keywords.")
+        st.rerun()
+    if no_col.button("Cancel", width="stretch", key="cv_keywords_reextract_no"):
+        st.session_state.pop(key, None)
+        st.rerun()
 
 
 def _render_cv_upload(info: dict):
-    uploaded = st.file_uploader("Replace cv.docx", help="The document every job is scored "
-                                "against. Replacing it re-reads your titles and skills on the "
-                                "next run, which changes what the feeds keep.", type=["docx"], key="cv_uploader")
+    uploaded = st.file_uploader("Replace cv.docx", help="Keywords are re-extracted on the next run.",
+                                type=["docx"], key="cv_uploader")
     if uploaded is None:
-        st.caption("Only .docx is parsed — .pdf and .doc are not read by the extractor.")
+        st.caption("Only .docx is supported.")
         return
 
     old_size = human_bytes(info.get("bytes")) if info.get("exists") else "—"
@@ -679,7 +763,10 @@ def _render_searches():
                 "Keyword": st.column_config.TextColumn(
                     "Keyword", width="medium", help="Free text, as typed into LinkedIn"
                 ),
-                "Location": st.column_config.TextColumn("Location", width="small"),
+                "Location": st.column_config.TextColumn(
+                    "Location", width="small",
+                    help="City or country, e.g. Berlin. Empty for anywhere.",
+                ),
                 "Experience Level": st.column_config.MultiselectColumn(
                     "Experience", width="medium",
                     options=_multi_options(rows, "Experience Level"),
@@ -699,8 +786,12 @@ def _render_searches():
                     "Posted within",
                     options=_posted_options(rows),
                     width="small",
+                    help="Only postings newer than this.",
                 ),
-                "Easy Apply": st.column_config.CheckboxColumn("Easy apply", width="small"),
+                "Easy Apply": st.column_config.CheckboxColumn(
+                    "Easy apply", width="small",
+                    help="Only LinkedIn one-click apply postings.",
+                ),
             },
         )
 
@@ -709,7 +800,7 @@ def _render_searches():
         with head_slot:
             section_head(
                 "LinkedIn searches",
-                "One row per LinkedIn query. Each runs on every scrape.",
+                "One row per LinkedIn query.",
                 state=(
                     '<span class="unsaved">● Unsaved changes</span>'
                     if dirty
@@ -765,7 +856,7 @@ def _render_wwr_categories():
     with st.container(border=True):
         section_head(
             "We Work Remotely categories",
-            "Which parts of the board to read. Leave empty for the all-jobs feed.",
+            "Leave empty to read the all-jobs feed.",
             state=f'<span class="mono">{len(current) or "all"} selected</span>',
         )
 
@@ -776,14 +867,7 @@ def _render_wwr_categories():
             format_func=lambda slug: WWR_CATEGORIES[slug],
             max_selections=WWR_MAX,
             key="wwr_categories",
-            help="The category feeds are not a subset of the all-jobs feed — together they "
-                 "carry roughly three times as many postings. Picking the ones you actually "
-                 "want means fewer jobs thrown away by the keyword check, and better use of "
-                 "your intake limit. Each category is one more request, so at most five.",
-        )
-        st.caption(
-            "Empty means the all-jobs feed: one request, a broad mix, and most of it "
-            "discarded by the keyword check before anything is scored."
+            help="Up to five. Picking only relevant categories means fewer wasted jobs.",
         )
 
         if st.button(
@@ -807,16 +891,13 @@ def _render_prompt_editor():
         edited = st.text_area(
             "Prompt", value=current, height=260, key="prompt_edit",
             label_visibility="collapsed",
-            help="How the AI reads your CV: it turns the document into the job titles and "
-                 "skills the feeds are filtered against. It does not affect scoring or cover "
-                 "letters. Re-read on the next run after you replace the CV.",
+            help="Instructions the AI uses to pull job titles and skills from your CV.",
         )
         dirty = edited.strip() != current.strip()
         with head_slot:
             section_head(
                 "CV keyword extraction prompt",
-                "Sent with your CV text to derive the titles and skills RemoteOK is "
-                "filtered on.",
+                "Turns your CV into keywords. Edit the keywords on the CV tab.",
                 state=(
                     '<span class="unsaved">● Unsaved changes</span>'
                     if dirty
@@ -842,21 +923,18 @@ def _render_prompt_editor():
 
 def _render_data():
     with st.container(border=True):
-        section_head("Export", "Take the jobs table out as a file.")
+        section_head("Export", "Download your jobs as a file.")
 
         fmt_col, scope_col = st.columns([2, 3], vertical_alignment="bottom")
         with fmt_col:
             fmt = st.segmented_control(
                 "Format", ["CSV", "JSON"], default="CSV", key="export_format",
-                help="CSV opens in a spreadsheet; JSON keeps the structure. Both carry the "
-                     "job's details, score and status — the full description and the cover "
-                     "letter are left out to keep the file small. Use Backup for everything.",
+                help="Excludes descriptions and cover letters. Use Backup for everything.",
             ) or "CSV"
         with scope_col:
             scope = st.selectbox(
                 "Scope", ["Matched jobs", "All jobs"], key="export_scope",
-                help="Matched only exports the jobs at or above your cutoff; All includes "
-                     "the ones that scored below it.",
+                help="Matched: at or above your cutoff. All: every scored job.",
             )
 
         matched_only = scope == "Matched jobs"
@@ -884,19 +962,15 @@ def _render_data():
                 icon=":material/download:",
                 key="export_download",
             )
-        st.caption("Matched jobs are the ones the AI scored as a fit.")
 
     with st.container(border=True):
-        section_head("Backup", "A consistent snapshot of the whole database.")
+        section_head("Backup", "A snapshot of the whole database.")
         st.markdown(
             '<div class="mono-note">jobs.db<span class="mono-sep">·</span>'
             "safe to take while the stack is running</div>",
             unsafe_allow_html=True,
         )
-        st.caption(
-            "Backups stream straight to your browser and are not kept on the server, "
-            "so there is no history here to list."
-        )
+        st.caption("To restore: stop the stack, replace data/db/jobs.db, start it again.")
         b_col, _ = st.columns([2, 6])
         with b_col:
             stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -933,10 +1007,9 @@ CLEAR_PHRASE = "delete all jobs"
 @st.dialog("Clear all jobs", width="small")
 def _clear_jobs_dialog(total: int):
     st.markdown(
-        f"This deletes **{total:,} jobs** and their status history. "
-        "Starred and blocked companies, your CV and your searches are not affected."
+        f"Deletes **{total:,} jobs** and their status history. "
+        "Companies, CV and searches are kept."
     )
-    st.caption("Scraped jobs are re-discoverable, but anything you typed by hand is not.")
     typed = st.text_input(
         f"Type “{CLEAR_PHRASE}” to confirm", key="clear_phrase", placeholder=CLEAR_PHRASE
     )
@@ -962,9 +1035,7 @@ def _render_danger_zone():
         with d_col:
             if st.button(
                 "Clear all jobs", width="stretch", disabled=total == 0,
-                help="Deletes every scored job. Anything still queued is left alone and will "
-                     "be scored on the next run. Your companies, searches, CV and settings are "
-                     "untouched. Cannot be undone — take a backup first.",
+                help="Deletes every scored job. Queued jobs, companies, searches, CV and settings are kept.",
                 icon=":material/delete_forever:", key="clear_all_jobs",
             ):
                 _clear_jobs_dialog(total)
@@ -1059,7 +1130,7 @@ def _render_schedule():
     with st.container(border=True):
         section_head(
             "Schedule",
-            "When the pipeline runs on its own. Run now always works, schedule or not.",
+            "When the pipeline runs on its own.",
         )
 
         next_at = parse_ts(state.get("next_run_at"))
@@ -1072,16 +1143,15 @@ def _render_schedule():
                 "Runs",
                 f'{escape(state.get("description", "—"))} · '
                 + status_dot("good" if enabled else "idle", when),
-                note=f"Times are {state.get('timezone', 'UTC')}, set by GENERIC_TIMEZONE in .env.",
-                tip="Saved here, not in .env. The PIPELINE_* variables only seed this "
-                    "the first time the database is created; after that this page owns them.",
+                note=f"Times in {state.get('timezone', 'UTC')}.",
+                tip="Timezone is set in .env.",
             ),
             unsafe_allow_html=True,
         )
 
         new_enabled = st.toggle(
             "Run on a schedule", value=enabled, key="schedule_enabled",
-            help="Off leaves the pipeline manual-only. Run now is unaffected.",
+            help="Off: runs only start from Run now.",
         )
 
         mode = state.get("mode", "daily")
@@ -1089,6 +1159,7 @@ def _render_schedule():
             "How often", list(MODE_LABELS), index=list(MODE_LABELS).index(mode) if mode in MODE_LABELS else 1,
             format_func=lambda m: MODE_LABELS[m], horizontal=True,
             key="schedule_mode", disabled=not new_enabled,
+            help="Once a day is gentler on free AI quotas.",
         )
 
         left, right = st.columns(2)
@@ -1099,13 +1170,14 @@ def _render_schedule():
                     index=allowed.index(state.get("every_n_hours")) if state.get("every_n_hours") in allowed else 0,
                     format_func=lambda h: f"{h} hours" if h > 1 else "1 hour",
                     key="schedule_hours", disabled=not new_enabled,
-                    help="Only divisors of 24, so the gap never changes across midnight.",
+                    help="Divisors of 24 only, so gaps stay even across midnight.",
                 )
             with right:
                 minute = st.number_input(
                     "At minute past the hour", min_value=0, max_value=59,
                     value=int(state.get("at_minute", 0)), step=5,
                     key="schedule_minute", disabled=not new_enabled,
+                    help="0 runs on the hour, 30 at half past.",
                 )
             payload_times = {"every_n_hours": int(hours), "at_minute": int(minute)}
             interval_minutes = int(hours) * 60
@@ -1114,6 +1186,7 @@ def _render_schedule():
                 at = st.time_input(
                     "At", value=_parse_clock(state.get("at_time", "01:00"), clock_time(1, 0)),
                     step=300, key="schedule_at_time", disabled=not new_enabled,
+                    help="Start time, in the timezone above.",
                 )
             payload_times = {"at_time": f"{at:%H:%M}"}
             interval_minutes = 24 * 60
@@ -1122,7 +1195,7 @@ def _render_schedule():
             retention_at = st.time_input(
                 "Delete old jobs at", value=_parse_clock(state.get("retention_at_time", "00:00"), clock_time(0, 0)),
                 step=300, key="schedule_retention_time",
-                help="Retention never runs during a scrape — it waits for the next day instead.",
+                help="When the daily clean-up runs. Skipped for the day if a run is active.",
             )
 
         # The window lives beside the time it runs at rather than in Config: one
@@ -1131,7 +1204,7 @@ def _render_schedule():
             "Keep jobs for (days)", min_value=1, max_value=3650,
             value=int(library.settings().get("DELETE_OLD_JOBS_DAYS") or 60), step=10,
             key="schedule_retention_days",
-            help="Retention deletes jobs, runs and run events older than this.",
+            help="Older jobs and runs are deleted. Starred and blocked companies are kept.",
         )
 
         # The plan on screen, not the saved one: the saved warning would still be
@@ -1145,9 +1218,7 @@ def _render_schedule():
         )
         if conflict and new_enabled:
             st.warning(
-                f"{conflict} Whichever starts first wins: retention skips until tomorrow, "
-                "or the run waits for retention to finish. Nothing overlaps, but one of "
-                "the two is delayed."
+                f"{conflict} One of them will be delayed."
             )
 
         # A paused newest run holds the schedule, so the next fire will not happen.
@@ -1155,8 +1226,7 @@ def _render_schedule():
         last_run = _health().get("last_run") or {}
         if new_enabled and last_run.get("status") == "paused":
             st.warning(
-                "The workflow is paused, so scheduled runs are skipped until you resume. "
-                "The next run time below applies once it is resumed."
+                "Workflow is paused; scheduled runs are skipped until you resume."
             )
 
         averaged = _avg_run_minutes(_cached_runs(50))
@@ -1165,12 +1235,11 @@ def _render_schedule():
             if average > interval_minutes:
                 runs_word = "run" if sample == 1 else "runs"
                 st.info(
-                    f"The last {sample} {runs_word} averaged {average} min, longer than this "
-                    "interval. Overlapping runs are skipped, not queued."
+                    f"Last {sample} {runs_word} averaged {average} min, longer than this "
+                    "interval. Overlaps are skipped."
                 )
 
-        if st.button("Save schedule", help="Takes effect immediately. A run already in "
-                    "progress is not affected — only the next one moves.", icon=":material/save:", type="primary", key="schedule_save"):
+        if st.button("Save schedule", help="Takes effect now. A run in progress is unaffected.", icon=":material/save:", type="primary", key="schedule_save"):
             payload = {
                 "enabled": new_enabled,
                 "mode": new_mode,
@@ -1181,7 +1250,7 @@ def _render_schedule():
             if ok:
                 saved, error, _ = put_settings({"DELETE_OLD_JOBS_DAYS": int(retention_days)})
                 if saved:
-                    _flash("success", "Schedule saved. A run already in progress is unaffected.")
+                    _flash("success", "Schedule saved.")
                 else:
                     _flash("error", f"Schedule saved, but the retention window was not: {error}")
                 _invalidate_settings()
@@ -1205,13 +1274,12 @@ def _render_history():
     runs = _cached_runs(50)
 
     with st.container(border=True):
-        section_head("Run history", "Every run the workflow has reported.")
+        section_head("Run history", "Past pipeline runs.")
 
         if not runs:
             empty_state(
                 "📋", "No runs recorded yet",
-                "Runs appear here after the pipeline runs. Use <b>Run now</b> on the "
-                "Workflow tab to start one.",
+                "Use <b>Run now</b> on the Workflow tab to start one.",
             )
             go_col, _ = st.columns([2, 6])
             with go_col:
@@ -1223,7 +1291,10 @@ def _render_history():
                     st.rerun()
             return
 
-        only_failed = st.toggle("Failed runs only", key="history_failed_only")
+        only_failed = st.toggle(
+            "Failed runs only", key="history_failed_only",
+            help="Hide successful, paused and stopped runs.",
+        )
         shown = [r for r in runs if r.get("status") == "failed"] if only_failed else runs
 
         chart = [r for r in reversed(runs[:14])]
@@ -1249,6 +1320,7 @@ def _render_history():
             }
             for r in shown
         ]
+        st.caption("Click a row for its log.")
         event = st.dataframe(
             table,
             width="stretch",
@@ -1316,11 +1388,11 @@ CUSTOM_PRESET = "Custom"
 # timezone at startup and the rest are wiring. Shown rather than hidden, so they
 # do not look broken when they refuse to move.
 ENV_ONLY = {
-    "GENERIC_TIMEZONE": "The clock both containers run on. Read once at startup.",
-    "APP_UID": "Must equal your host user id or the containers cannot write ./data.",
-    "API_PORT / DASHBOARD_PORT": "Host ports, published by docker compose.",
-    "DB_PATH": "Where the SQLite file lives inside the container.",
-    "API_URL": "Where this dashboard finds the API on the internal network.",
+    "GENERIC_TIMEZONE": "Timezone for schedules and timestamps.",
+    "APP_UID": "Must match your host user id.",
+    "API_PORT / DASHBOARD_PORT": "Host ports.",
+    "DB_PATH": "Database file path in the container.",
+    "API_URL": "Where the dashboard reaches the API.",
 }
 
 
@@ -1374,7 +1446,7 @@ def _secret_input(label: str, key: str, values: dict, help: str | None = None):
     if stored:
         clear = st.checkbox(
             f"Clear {label.lower()}", key=f"cfg_clear_{key}",
-            help="Removes the stored value. The field above is ignored.",
+            help="Removes the stored value on save.",
         )
     if clear:
         return None
@@ -1385,8 +1457,7 @@ def _render_providers(values: dict):
     with st.container(border=True):
         section_head(
             "LLM provider",
-            "Every call posts an OpenAI-shaped body, so any provider with an "
-            "OpenAI-compatible /chat/completions endpoint works.",
+            "Any OpenAI-compatible provider works.",
         )
 
         current_url = values.get("LLM_URL") or ""
@@ -1394,26 +1465,30 @@ def _render_providers(values: dict):
         names = list(LLM_PRESETS) + [CUSTOM_PRESET]
         chosen = st.selectbox(
             "Provider", names, index=names.index(preset), key="cfg_llm_preset",
-            help="Who scores your jobs and writes your cover letters. Any provider works as "
-                 "long as it speaks the OpenAI chat format; pick Custom to type your own.",
+            help="Scores jobs and writes cover letters. Pick Custom for your own endpoint.",
         )
         if chosen == CUSTOM_PRESET:
             url = st.text_input(
                 "Endpoint", value=current_url, key="cfg_llm_url",
-                help="Must end in an OpenAI-compatible /chat/completions path.",
+                help="Full URL ending in /chat/completions.",
             )
         else:
             # Deliberately unkeyed: Streamlit keeps keyed widget state across reruns
             # and ignores `value`, so a keyed field here would show — and save — the
             # previous provider's endpoint after switching preset.
             url = LLM_PRESETS[chosen]
-            st.text_input("Endpoint", value=url, disabled=True)
+            st.text_input(
+                "Endpoint", value=url, disabled=True,
+                help="Set by the provider. Pick Custom to edit.",
+            )
         model = st.text_input(
             "Model", value=values.get("LLM_MODEL") or "", key="cfg_llm_model",
-            help="Exactly as your provider names it, e.g. gemini-2.5-flash or gpt-4o-mini. "
-                 "A wrong name fails at the first job of the next run.",
+            help="As your provider names it, e.g. gemini-2.5-flash.",
         )
-        api_key = _secret_input("API key", "LLM_API_KEY", values)
+        api_key = _secret_input(
+            "API key", "LLM_API_KEY", values,
+            help="Required for scoring. Get one from your provider; hidden after saving.",
+        )
 
         if st.button(
             "Save provider", icon=":material/save:", type="primary", key="cfg_save_llm",
@@ -1431,20 +1506,17 @@ def _render_scoring(values: dict):
         cutoff = st.slider(
             "Match cutoff", 0, 100, value=_int_setting(values, "FILTERING_SCORE", 60),
             key="cfg_cutoff",
-            help="The verdict is written at this score. Changing it re-labels the "
-                 "jobs you already have, so the table never holds two rules at once.",
+            help="Jobs scoring at or above this are Matched. Changing it re-labels existing jobs.",
         )
         delay = st.number_input(
             "Seconds between scored jobs", min_value=0, max_value=3600,
             value=_int_setting(values, "SCORING_DELAY_SECONDS", 20), step=5, key="cfg_delay",
-            help="The rate limit for free LLM tiers, and the biggest lever on how "
-                 "long a run takes: 100 queued jobs at 20s is over half an hour.",
+            help="Wait between AI calls, for free-tier rate limits. Sets how long a run takes.",
         )
 
         if st.button(
             "Save scoring", icon=":material/save:", type="primary", key="cfg_save_scoring",
-            help="Changing the cutoff also re-labels the jobs you already have, so Matched "
-                 "always means the same thing across your whole list.",
+            help="A new cutoff also re-labels existing jobs.",
         ):
             _save_settings(
                 {"FILTERING_SCORE": int(cutoff), "SCORING_DELAY_SECONDS": int(delay)}, "Scoring"
@@ -1459,14 +1531,12 @@ def _render_email(values: dict):
             (values.get("SMTP_APP_PASSWORD") or {}).get("set")
         )
         if not configured:
-            st.info("SMTP is not configured, so no application email is ever sent.")
+            st.info("SMTP is not set up, so no emails are sent.")
 
         # Visible, not a tooltip: this is the one switch on the page that mails
         # strangers, and a hover is not a warning to someone flipping it in passing.
         st.warning(
-            "Automatic sending posts real applications to real employers during a run — "
-            "any matched job whose description carries an address. Sent mail cannot be "
-            "recalled, so read a few generated letters first.",
+            "Automatic sending emails real employers for matched jobs. Sent mail cannot be recalled.",
             icon=":material/outgoing_mail:",
         )
         auto = st.toggle(
@@ -1475,8 +1545,7 @@ def _render_email(values: dict):
         )
         sender = st.text_input(
             "Sender name", value=values.get("SENDER_NAME") or "", key="cfg_sender",
-            help="Your name as an employer sees it — on the application email and on the "
-                 "cover letter PDF.",
+            help="Your name on application emails and cover letters.",
         )
 
         left, right = st.columns(2)
@@ -1487,8 +1556,7 @@ def _render_email(values: dict):
             )
             user = st.text_input(
                 "SMTP user", value=values.get("SMTP_USER") or "", key="cfg_smtp_user",
-                help="The mailbox applications are sent from. Also printed on your cover "
-                     "letter PDF so employers can reply.",
+                help="Mailbox applications are sent from; shown on cover letters.",
             )
         with right:
             port = st.number_input(
@@ -1497,7 +1565,10 @@ def _render_email(values: dict):
                 min_value=1, max_value=65535,
                 value=int(values.get("SMTP_PORT") or 587), key="cfg_smtp_port",
             )
-            password = _secret_input("App password", "SMTP_APP_PASSWORD", values)
+            password = _secret_input(
+                "App password", "SMTP_APP_PASSWORD", values,
+                help="An app password from your account's security settings, not your login password.",
+            )
 
         save_col, test_col = st.columns([1, 1])
         with save_col:
@@ -1518,7 +1589,7 @@ def _render_email(values: dict):
             if st.button(
                 "Send test email", icon=":material/outgoing_mail:", key="cfg_test_email",
                 disabled=not configured,
-                help="Sends to the configured account itself, never to an employer.",
+                help="Sends to your own account, never to an employer.",
             ):
                 ok, msg = send_email(
                     values.get("SMTP_USER") or "",
@@ -1533,28 +1604,27 @@ def _render_notifications(values: dict):
     with st.container(border=True):
         section_head(
             "Notifications",
-            "Run summaries go to every configured channel. A dead channel is logged "
-            "and skipped — it can never fail a run.",
+            "Run summaries go to every channel you fill in.",
         )
 
         telegram_id = st.text_input(
             "Telegram chat id", value=values.get("TELEGRAM_ID") or "", key="cfg_tg_id",
-            help="Your own Telegram user id — message @get_id_bot to find it. Needed "
-                 "alongside the bot token below.",
+            help="Your Telegram user id; message @get_id_bot to find it.",
         )
-        telegram_token = _secret_input("Telegram bot token", "TELEGRAM_BOT_TOKEN", values)
+        telegram_token = _secret_input(
+            "Telegram bot token", "TELEGRAM_BOT_TOKEN", values,
+            help="Get it from @BotFather, then send your bot one message.",
+        )
         discord = _secret_input(
             "Discord webhook URL", "DISCORD_WEBHOOK_URL", values,
-            help="The URL is the whole credential: anyone holding it can post to the "
-                 "channel, so it is stored and masked like a token.",
+            help="The channel's webhook URL. Keep it private, like a password.",
         )
 
         save_col, tg_col, dc_col = st.columns([2, 1, 1])
         with save_col:
             if st.button(
                 "Save notifications", icon=":material/save:", type="primary", key="cfg_save_notify",
-                help="Run summaries go to every channel you fill in. A broken one is skipped, "
-                     "never enough to fail a run.",
+                help="A broken channel is skipped; it never fails a run.",
             ):
                 payload: dict = {"TELEGRAM_ID": telegram_id.strip()}
                 _apply_secret(payload, "TELEGRAM_BOT_TOKEN", telegram_token)
@@ -1563,14 +1633,13 @@ def _render_notifications(values: dict):
         with tg_col:
             if st.button(
                 "Test Telegram", key="cfg_test_tg",
-                help="Sends one message now and reports what came back. A channel that is "
-                     "quiet because it is broken looks exactly like a quiet night.",
+                help="Sends a test message now.",
             ):
                 _report_channel_test("telegram")
         with dc_col:
             if st.button(
                 "Test Discord", key="cfg_test_dc",
-                help="Posts one message to the webhook now and reports the result.",
+                help="Posts a test message now.",
             ):
                 _report_channel_test("discord")
 
@@ -1588,8 +1657,7 @@ def _render_env_only():
     with st.container(border=True):
         section_head(
             "Set in .env, not here",
-            "These are container wiring: they are read when the stack starts, so "
-            "changing them at run time would change nothing.",
+            "Edit .env and restart the stack to change these.",
         )
         for key, why in ENV_ONLY.items():
             st.markdown(readout(key, escape(why)), unsafe_allow_html=True)
@@ -1605,12 +1673,7 @@ def _render_config():
 
     # Story 33: the comment above says this to whoever reads the source; the user
     # editing .env and waiting for something to happen needs it on the page.
-    st.info(
-        "Everything here is stored in the database and applies to the next run without "
-        "a restart. `.env` only seeds these the first time the database is created — "
-        "after that this page owns them and editing `.env` does nothing.",
-        icon=":material/info:",
-    )
+    st.caption("Saved here; applies to the next run. `.env` is ignored.")
 
     _render_providers(values)
     _render_scoring(values)
@@ -1622,15 +1685,11 @@ def _render_config():
 # What each source is, in the user's terms rather than the module's. A switch labelled
 # "Company boards" tells you nothing about where those jobs come from or what turns them on.
 SOURCE_HELP = {
-    "companies": "Fetches jobs straight from the careers pages you added in Companies — "
-                 "only the ones whose In workflow switch is on. Turning this off stops all "
-                 "of them at once without touching the individual switches.",
-    "linkedin": "Runs the searches you wrote in the Searches tab. The slowest and most "
-                "fragile source: LinkedIn can rate-limit or block the connection.",
-    "remoteok": "A remote-jobs feed. One request, capped at 100 postings.",
-    "himalayas": "A large remote-jobs feed — over 100,000 postings. Only ones matching your "
-                 "CV keywords are kept, and never more than the per-source limit below.",
-    "weworkremotely": "A curated remote-jobs feed. One request, descriptions included.",
+    "companies": "Careers pages from Companies with In workflow on.",
+    "linkedin": "Your searches from the Searches tab. Slowest; LinkedIn may rate-limit it.",
+    "remoteok": "Remote-jobs feed, up to 100 postings.",
+    "himalayas": "Large remote-jobs feed, filtered by your CV keywords.",
+    "weworkremotely": "Curated remote-jobs feed.",
 }
 
 
@@ -1639,8 +1698,7 @@ def _render_sources():
     with st.container(border=True):
         section_head(
             "Sources",
-            "Where jobs come from. Turning one off changes the next run only — jobs already "
-            "in your list stay where they are.",
+            "Changes apply to the next run.",
         )
 
         if not sources:
@@ -1664,8 +1722,7 @@ def _render_sources():
 
         if not any(s["enabled"] for s in sources):
             st.info(
-                "Every source is off. Runs still score whatever is already queued, "
-                "they just add nothing new."
+                "All sources off: runs only score what is already queued."
             )
 
     _render_intake_limits()
@@ -1684,8 +1741,7 @@ def _render_intake_limits():
     with st.container(border=True):
         section_head(
             "How much to take in",
-            "Sources offer far more jobs than are worth scoring. Each job that gets through "
-            "costs one AI call and one wait, so these two numbers decide how long a run takes.",
+            "Each new job costs one AI call, so these set run length.",
         )
 
         left, right = st.columns(2)
@@ -1694,39 +1750,30 @@ def _render_intake_limits():
                 "Jobs per run, in total", min_value=1, max_value=10000,
                 value=_int_setting(values, "INTAKE_MAX_PER_RUN", 200), step=25,
                 key="cfg_intake_run",
-                help="The ceiling for a whole run, across every source. This is the number "
-                     "that maps to time: see the estimate below.",
+                help="Max new jobs per run, across all sources.",
             )
         with right:
             per_source = st.number_input(
                 "Jobs per source", min_value=1, max_value=10000,
                 value=_int_setting(values, "INTAKE_MAX_PER_SOURCE", 80), step=10,
                 key="cfg_intake_source",
-                help="Stops one big feed filling the whole run before the other sources are "
-                     "reached. A feed with 100,000 jobs would otherwise be the only one you "
-                     "ever see.",
+                help="Keeps one big feed from filling the whole run.",
             )
 
         delay = _int_setting(values, "SCORING_DELAY_SECONDS", 20)
         minutes = round(per_run * delay / 60)
         st.markdown(
             readout(
-                "Scoring time for a full intake",
+                "Full-run scoring time",
                 f"{per_run} new jobs × {delay}s ≈ <strong>{minutes} min</strong>",
-                note="Plus anything already queued from a previous run, which is scored first.",
+                note="Plus any jobs already queued.",
                 tip="Change the delay in Config → Scoring.",
             ),
             unsafe_allow_html=True,
         )
-        st.caption(
-            "Jobs from the broad feeds — RemoteOK, Himalayas, We Work Remotely — are "
-            "keyword-checked against your CV first, so irrelevant ones cost nothing. Jobs "
-            "from a **company you added** and from **your own LinkedIn searches** skip that "
-            "check, because in both cases you already said what you wanted. Everything is "
-            "capped the same way."
-        )
 
-        if st.button("Save limits", icon=":material/save:", type="primary", key="cfg_save_intake"):
+        if st.button("Save limits", icon=":material/save:", type="primary", key="cfg_save_intake",
+                     help="Applies to the next run."):
             _save_settings(
                 {
                     "INTAKE_MAX_PER_RUN": int(per_run),
@@ -1743,7 +1790,7 @@ def render_settings_tab():
     with st.container(key="settings_page"):
         page_header(
             "Settings",
-            "Workflow control, configuration, CV, searches, data and run history.",
+            "Run, configure and review your job search.",
         )
         _render_flash()
         _status_strip()

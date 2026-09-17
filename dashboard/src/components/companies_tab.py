@@ -46,47 +46,24 @@ SORT_OPTIONS = {
 
 # What each list actually does, stated once. Everything here is what the code
 # does today, not what it sounds like it should do.
-EFFECTS = (
-    "**Starred** companies get a ★ in the Jobs list and their own view. "
-    "Starring does not change how a job is scored.  \n"
-    "**Blocked** companies are dropped the moment they are scraped, before the "
-    "scorer sees them, so they never cost an LLM call. Jobs already in your list stay."
-)
+EFFECTS = "**Starred:** marked ★ in Jobs. **Blocked:** new jobs never scored or shown."
 
 # Company boards are the one idea on this page a label cannot carry on its own, so it is
 # spelled out in the open rather than hidden in a tooltip: hover text does not exist on a
 # phone, and this is the feature people will otherwise assume is broken.
 HOW_BOARDS_WORK = """
-Add a company's **careers URL** and we try to read their jobs directly from the source,
-rather than waiting for the posting to reach LinkedIn a few days later. Descriptions are
-the full original and the apply link is their real application form.
+Add a **careers URL** to a starred company to fetch jobs straight from it.
 
-**What the row tells you**
-
-| The row says | What it means |
+| The row says | Meaning |
 |---|---|
-| Checking this page… | We are working out what is behind the URL. Takes a few seconds. |
-| Greenhouse / Lever / Ashby board detected | Their jobs come straight from their job board. Most reliable. |
-| Reading the page directly | No job board found, but the page publishes readable job data. Works until they redesign the page. |
-| We cannot read jobs from this page | Their listings are built in your browser, or the site asks us not to read them. The row says which. |
+| Checking this page… | Still checking, takes a few seconds. |
+| Greenhouse / Lever / Ashby board detected | Reads their job board. Most reliable. |
+| Reading the page directly | Works until they redesign the page. |
+| We cannot read jobs from this page | Not readable. The row says why. |
 
-**The two controls are separate on purpose**
-
-- **In workflow** — fetch this company on every run, automatically. Off by default. It stays
-  unavailable while a page cannot be read, because turning it on would add nothing but a
-  silent zero to every run.
-- **Scrape now** — fetch this one company immediately, whatever the switch says. Use it to
-  try a careers URL before committing it to every night.
-
-Neither needs the other. And a star is a separate thing again: starring says *I want to work
-here*, the switch says *fetch their jobs*. You can do either without the other.
-
-**If a company cannot be read**, nothing is lost — their jobs still reach you through
-LinkedIn, Himalayas and the other sources whenever they match. Big employers often run their
-own job software that no one can read automatically; that is normal, not a fault.
-
-**What comes back is capped.** A single company can have hundreds of open roles, and every
-job queued costs an AI call and a wait. See Settings → Workflow for the limits.
+- **In workflow**: fetch this company on every run.
+- **Scrape now**: fetch it once, right away.
+- Jobs fetched per company are capped. Set limits in Settings → Workflow.
 """
 
 
@@ -154,6 +131,12 @@ def _sorted(rows: list[dict], sort_key: str) -> list[dict]:
     return sorted(rows, key=lambda c: c.get("created_at") or "", reverse=True)
 
 
+# Field help, shared by the Add dialog and the row's Edit form so the two never drift.
+CAREERS_URL_HELP = "The page listing their jobs. We fetch jobs from it. Optional."
+NOTE_HELP = "Private. Not used in scoring."
+REASON_HELP = "Private reminder of why you blocked them."
+
+
 # ── add ─────────────────────────────────────────────────────────────────────
 
 
@@ -165,12 +148,11 @@ def _add_company_dialog():
 
     kind = st.segmented_control(
         "List", ["★ Star", "🚫 Block"], default="★ Star", key=f"add_company_kind_{n}",
-        help="Star: a company you want to work at. You can also add their careers page so "
-             "we fetch their jobs directly. Block: their jobs are thrown away before scoring "
-             "and never reach your list.",
+        help="Star: a company you want. Block: their new jobs are never scored or shown.",
     )
     starred = kind != "🚫 Block"
 
+    st.caption("Pick from your jobs, or add any company by name.")
     from_jobs, by_name = st.tabs(["From your jobs", "By name"])
 
     with from_jobs:
@@ -190,14 +172,13 @@ def _render_pick_from_jobs(nonce: int, starred: bool):
     known = _known_names()
     options = [c for name, c in library.company_stats().items() if name not in known]
     if not options:
-        st.caption("Every company in your jobs table is already on one of the lists.")
+        st.caption("Every company in your jobs is already listed.")
         return
 
     picked = st.multiselect(
         "Companies in your jobs",
         options,
-        help="Picked from companies already in your jobs table, so the name matches exactly "
-             "what the scrapers see.",
+        help="Companies from your scored jobs.",
         format_func=lambda c: f"{c['company']}  ·  best {c['best_score']}  ·  {c['job_count']} job"
                               + ("s" if c["job_count"] != 1 else ""),
         key=f"add_company_pick_{nonce}",
@@ -227,28 +208,23 @@ def _render_pick_from_jobs(nonce: int, starred: bool):
 def _render_manual_add(nonce: int, starred: bool):
     name = st.text_input(
         "Company name *", placeholder="e.g. Google", key=f"add_company_name_{nonce}",
-        help="How the company appears on a job posting. Punctuation and endings like "
-             "\"Inc.\" or \"Ltd\" are ignored when matching, so Acme and Acme, Inc. count "
-             "as the same company.",
+        help="As it appears on job postings. \"Inc.\", \"Ltd\" and punctuation are ignored.",
     )
     if starred:
         careers_url = st.text_input(
             "Careers URL", placeholder="https://careers.company.com", key=f"add_company_url_{nonce}",
-            help="Paste the page where this company lists its jobs. We check what is behind "
-                 "it — many careers pages are really a Greenhouse, Lever or Ashby board — and "
-                 "the row then tells you whether we can read their jobs. Leave it empty to "
-                 "just star the company.",
+            help=CAREERS_URL_HELP,
         )
         detail = st.text_area(
             "Note", placeholder="Why you want to work here",
             key=f"add_company_notes_{nonce}", height=90,
-            help="For you only. Never sent to the AI and never used in scoring.",
+            help=NOTE_HELP,
         )
     else:
         careers_url = ""
         detail = st.text_input(
             "Reason", placeholder="Agency / ghost jobs / already rejected…",
-            help="For you only — a reminder of why you blocked them.",
+            help=REASON_HELP,
             key=f"add_company_reason_{nonce}",
         )
 
@@ -286,10 +262,19 @@ def _render_manual_add(nonce: int, starred: bool):
 COLUMNS = [4.2, 1.0, 1.0, 1.5, 0.8]
 
 
+HEAD_TIPS = {
+    "Company": "Icon: starred or blocked. Arrow opens careers page.",
+    "Jobs": "Scored jobs from this company.",
+    "Best": "Highest score among those jobs.",
+    "Last seen": "When their latest job was scored.",
+}
+
+
 def _render_head():
     cols = st.columns(COLUMNS, vertical_alignment="center")
     for col, label in zip(cols, ["Company", "Jobs", "Best", "Last seen", ""]):
-        col.markdown(f'<div class="list-head">{label}</div>', unsafe_allow_html=True)
+        tip = escape(HEAD_TIPS.get(label, ""), quote=True)
+        col.markdown(f'<div class="list-head" title="{tip}">{label}</div>', unsafe_allow_html=True)
 
 
 def _render_row(company: dict):
@@ -311,7 +296,7 @@ def _render_row(company: dict):
             mark_class = "star-mark" if kind == STARRED else "block-mark"
             link = (
                 f'<a class="company-link" href="{escape(careers_url, quote=True)}" '
-                f'target="_blank" rel="noopener" title="Careers page">↗</a>'
+                f'target="_blank" rel="noopener" title="{escape(CAREERS_LINK_TIP, quote=True)}">↗</a>'
                 if careers_url
                 else ""
             )
@@ -348,6 +333,10 @@ def _render_row(company: dict):
             _render_edit_form(company, row_key)
 
 
+CAREERS_LINK_TIP = "Open their careers page."
+VERDICT_TIP = "Whether we can read jobs from their careers URL."
+
+
 def _render_fetch_controls(company: dict, row_key: str):
     """The verdict, the switch and Scrape now.
 
@@ -373,7 +362,8 @@ def _render_fetch_controls(company: dict, row_key: str):
             else ""
         )
         st.markdown(
-            f'<div class="company-detail fetch-{tone}">{escape(text)}{escape(trailing)}</div>'
+            f'<div class="company-detail fetch-{tone}" title="{escape(VERDICT_TIP, quote=True)}">'
+            f"{escape(text)}{escape(trailing)}</div>"
             + (f'<div class="company-detail">{escape(note)}</div>' if note else ""),
             unsafe_allow_html=True,
         )
@@ -386,9 +376,9 @@ def _render_fetch_controls(company: dict, row_key: str):
             key=f"inflow_{row_key}",
             disabled=not readable,
             help=(
-                "Fetch this company on every run."
+                "Fetch their jobs every run. Needs the Company boards source on in Settings."
                 if readable
-                else "Available once we can read this company's jobs."
+                else "Available once we can read their jobs."
             ),
         )
         if readable and new_value != bool(fetch.get("in_workflow")):
@@ -408,8 +398,7 @@ def _render_fetch_controls(company: dict, row_key: str):
                 "Check again",
                 key=f"recheck_{row_key}",
                 width="stretch",
-                help="Look at the careers page again. Worth trying if they have redesigned "
-                     "their site, or if the check failed because the page was down.",
+                help="Retry if their site changed or was down.",
             ):
                 recheck_company(company["id"])
                 _invalidate()
@@ -420,7 +409,7 @@ def _render_fetch_controls(company: dict, row_key: str):
             key=f"scrape_{row_key}",
             width="stretch",
             disabled=method == "unknown",
-            help="Fetches this company now. Scoring happens on the next run.",
+            help="Fetch jobs now. They are scored on the next run.",
         ):
             ok, result = scrape_company(company["id"])
             if ok and isinstance(result, dict):
@@ -473,7 +462,11 @@ def _render_actions(company: dict, row_key: str, editing: bool):
     else:
         edit_label = "Edit"
 
-    if st.button(edit_label, key=f"edit_btn_{row_key}", width="stretch"):
+    edit_help = {
+        "Close editor": "Close the edit form without saving.",
+        "Add careers URL": "Add the page listing their jobs.",
+    }.get(edit_label, "Change the careers URL or note." if kind == STARRED else "Change the reason.")
+    if st.button(edit_label, key=f"edit_btn_{row_key}", width="stretch", help=edit_help):
         st.session_state[f"edit_{row_key}"] = not editing
         st.rerun()
 
@@ -482,8 +475,7 @@ def _render_actions(company: dict, row_key: str, editing: bool):
             "🚫 Block instead",
             key=f"toblock_{row_key}",
             width="stretch",
-            help="Move this company to the blocked list. Their new postings are thrown away "
-                 "before scoring; jobs already in your list stay.",
+            help="Move to blocked. Existing jobs stay.",
         ):
             if add_blocked_company(name, "Moved from the starred list") is not None:
                 delete_starred_company(cid)
@@ -491,12 +483,13 @@ def _render_actions(company: dict, row_key: str, editing: bool):
             st.session_state["companies_flash"] = f"Blocked {name.title()}."
             st.rerun()
         remove_label, done = "Remove from starred", "Removed"
+        remove_help = "Its jobs stay in your list."
     else:
         if st.button(
             "★ Star instead",
             key=f"tostar_{row_key}",
             width="stretch",
-            help="Unblock them and move them to your starred list.",
+            help="Unblock and move to starred.",
         ):
             if add_starred_company(name) is not None:
                 delete_blocked_company(cid)
@@ -504,8 +497,12 @@ def _render_actions(company: dict, row_key: str, editing: bool):
             st.session_state["companies_flash"] = f"Starred {name.title()}."
             st.rerun()
         remove_label, done = "Unblock", "Unblocked"
+        remove_help = "Affects future postings only."
 
-    if st.button(remove_label, key=f"del_{row_key}", width="stretch", icon=":material/delete:"):
+    if st.button(
+        remove_label, key=f"del_{row_key}", width="stretch", icon=":material/delete:",
+        help=remove_help,
+    ):
         st.session_state[f"confirm_{row_key}"] = done
         st.rerun()
 
@@ -531,11 +528,17 @@ def _render_delete_confirm(company: dict, row_key: str):
 def _render_edit_form(company: dict, row_key: str):
     with st.form(f"edit_form_{row_key}"):
         if company["kind"] == STARRED:
-            url = st.text_input("Careers URL", value=company.get("careers_url") or "")
-            notes = st.text_area("Note", value=company.get("notes") or "", height=80)
+            url = st.text_input(
+                "Careers URL", value=company.get("careers_url") or "", help=CAREERS_URL_HELP
+            )
+            notes = st.text_area(
+                "Note", value=company.get("notes") or "", height=80, help=NOTE_HELP
+            )
         else:
             url = ""
-            notes = st.text_area("Reason", value=company.get("reason") or "", height=80)
+            notes = st.text_area(
+                "Reason", value=company.get("reason") or "", height=80, help=REASON_HELP
+            )
 
         save, cancel, _ = st.columns([1.4, 1.4, 4])
         if save.form_submit_button("Save", width="stretch", type="primary"):
@@ -563,13 +566,14 @@ def _render_edit_form(company: dict, row_key: str):
 def render_companies_tab():
     (add_col,) = page_header(
         "Companies",
-        "Prioritise the firms you want, and stop paying to score the ones you don't.",
+        "Star the firms you want, block the ones you don't.",
         actions=1,
         action_width=1.5,
     )
     with add_col:
         if st.button(
-            "Add company", width="stretch", type="primary", icon=":material/add:", key="companies_add"
+            "Add company", width="stretch", type="primary", icon=":material/add:", key="companies_add",
+            help="Star or block a company.",
         ):
             _add_company_dialog()
 
@@ -600,7 +604,7 @@ def render_companies_tab():
             "Search",
             key="companies_search",
             label_visibility="collapsed",
-            placeholder="Search companies, notes or URLs…",
+            placeholder="Search companies…",
         )
     with sort_col:
         sort_key = st.selectbox(
@@ -653,20 +657,17 @@ def _render_empty(view: str, needle: str, has_any: bool):
     elif view == VIEW_STARRED:
         empty_state(
             "★", "No starred companies",
-            "Star a company and its jobs get a ★ in the list and their own view. Use "
-            "<b>Add company</b> — the picker lists the companies already in your jobs table.",
+            "Use <b>Add company</b> to star firms you want to work at.",
         )
     elif view == VIEW_BLOCKED:
         empty_state(
             "🚫", "No blocked companies",
-            "Blocked companies are dropped the moment they are scraped, so they never cost "
-            "an LLM call. Block one from a job's <b>⋯</b> menu or from <b>Add company</b>.",
+            "Block from a job's details, or use <b>Add company</b>.",
         )
     elif not has_any:
         empty_state(
             "🏢", "No companies yet",
-            "Start from the companies already in your jobs table: press <b>Add company</b> "
-            "and pick from the list.",
+            "Press <b>Add company</b> to star or block one.",
         )
     else:
         empty_state("🏢", "Nothing to show", "Switch views to see your companies.")

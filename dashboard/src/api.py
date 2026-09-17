@@ -433,6 +433,25 @@ def get_cv_keywords() -> dict:
         return {"keywords": None, "cv_hash": None, "updated_at": None}
 
 
+def update_cv_keywords(titles: list[str], skills: list[str]) -> tuple[bool, str]:
+    try:
+        resp = _session.put(
+            f"{API}/cv/keywords", json={"titles": titles, "skills": skills}, timeout=TIMEOUT
+        )
+        return (True, "") if resp.status_code == 200 else (False, _error_detail(resp))
+    except (requests.RequestException, ValueError) as e:
+        logger.exception("Failed to save CV keywords")
+        return False, str(e)
+
+
+def delete_cv_keywords() -> bool:
+    try:
+        return _session.delete(f"{API}/cv/keywords", timeout=TIMEOUT).status_code == 200
+    except requests.RequestException:
+        logger.exception("Failed to delete CV keywords")
+        return False
+
+
 def download_cv_file() -> bytes | None:
     try:
         resp = _session.get(f"{API}/cv/file", timeout=30)

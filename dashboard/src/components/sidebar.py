@@ -7,6 +7,7 @@ so the two can never disagree.
 """
 
 import io
+from html import escape
 
 import segno
 import streamlit as st
@@ -26,6 +27,12 @@ NAV_KEY = "nav_page"
 GOTO_KEY = "nav_goto"
 
 STRIP_TTL = 15
+
+# Hover text for the status strip; each line is a number a first-time user cannot decode.
+STATE_TIP = "Scrapes and scores new jobs. Control it in Settings → Workflow."
+QUEUE_TIP = "Jobs found but not scored yet."
+LAST_RUN_TIP = "When the latest run ended, or started if still running."
+AGE_TIP = "When these numbers were last refreshed."
 
 
 def goto(page: str):
@@ -73,10 +80,11 @@ def _status_block():
 
     st.markdown(
         f'<div class="side-status">'
-        f'<div class="side-state">{status_dot(tone, text)}</div>'
-        f'<div class="side-nums">Queue {counts["queue"]:,}</div>'
-        f'<div class="side-nums">Last run {when}</div>'
-        f'<div class="side-age">Counts updated {relative_time(counts["fetched_at"])}</div>'
+        f'<div class="side-state" title="{escape(STATE_TIP)}">{status_dot(tone, text)}</div>'
+        f'<div class="side-nums" title="{escape(QUEUE_TIP)}">Queue {counts["queue"]:,}</div>'
+        f'<div class="side-nums" title="{escape(LAST_RUN_TIP)}">Last run {when}</div>'
+        f'<div class="side-age" title="{escape(AGE_TIP)}">'
+        f'Counts updated {relative_time(counts["fetched_at"])}</div>'
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -96,22 +104,21 @@ def _render_public_link():
         # dashboard on the open internet, and the answer to "what does this
         # expose" should never be something the reader has to work out.
         st.markdown(
-            "A Cloudflare quick tunnel serves **this entire dashboard** to anyone with "
-            "the link — **no password**. That includes your CV download, every scraped "
-            "job, your application statuses, your searches, and Settings, which can "
-            "delete all jobs.\n\n"
-            "Stop it with `docker compose stop cloudflared`. The link changes every "
-            "time the tunnel restarts."
+            "Anyone with this link gets **the whole dashboard**, **no password**. "
+            "Stop it: `docker compose stop cloudflared`."
         )
         if not st.session_state.get("public_url"):
-            if st.button("Get link", width="stretch", key="get_public_url"):
+            if st.button(
+                "Get link", width="stretch", key="get_public_url",
+                help="Show the link and a QR code.",
+            ):
                 st.session_state["public_url"] = get_dashboard_public_url()
                 st.rerun()
             return
 
         url = st.session_state["public_url"]
         if not url:
-            st.info("No tunnel URL yet. It takes a few seconds after the stack starts.")
+            st.info("No link yet. Try again in a few seconds.")
             if st.button("Retry", width="stretch", key="retry_public_url"):
                 st.session_state.pop("public_url", None)
                 st.rerun()
@@ -119,7 +126,10 @@ def _render_public_link():
 
         st.code(url, language=None, wrap_lines=True)
         st.image(_qr_png(url), width="stretch")
-        if st.button("Hide", width="stretch", key="hide_public_url"):
+        if st.button(
+            "Hide", width="stretch", key="hide_public_url",
+            help="Hides the link. The tunnel keeps running.",
+        ):
             st.session_state.pop("public_url", None)
             st.rerun()
 
@@ -152,7 +162,10 @@ def render_sidebar() -> str:
             format_func=lambda p: _label(p, counts),
         )
         _status_block()
-        if st.button("↻ Refresh data", width="stretch", help="Re-fetch everything now"):
+        if st.button(
+            "↻ Refresh data", width="stretch",
+            help="Reload all counts and lists now.",
+        ):
             st.cache_data.clear()
             st.rerun()
         _render_public_link()

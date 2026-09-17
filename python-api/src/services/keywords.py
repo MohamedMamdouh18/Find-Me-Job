@@ -1,10 +1,9 @@
-import hashlib
 import json
 import logging
 import os
 from docx import Document
 
-from .cv import docx_text
+from .cv import cv_text_hash, docx_text
 from .llm import call_llm, parse_llm_json
 from .run_context import RunContext
 from ..database.repositories import CVKeywordsRepository
@@ -36,7 +35,7 @@ def extract_or_get_keywords(
             f"CV file at {cv_path} contains no readable text. Please upload a .docx file with your resume content."
         )
 
-    cv_hash = hashlib.sha256(cv_text.encode("utf-8")).hexdigest()
+    cv_hash = cv_text_hash(cv_text)
 
     repo = CVKeywordsRepository(ctx.session)
     existing = repo.get_latest()

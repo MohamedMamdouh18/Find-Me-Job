@@ -42,12 +42,12 @@ VIEW_COUNT_KEYS = {
 # has to be built per run instead of frozen at import.
 def view_help() -> dict:
     return {
-        VIEW_ALL: "Every scored job, nothing hidden",
-        VIEW_MATCHED: f"The AI scored these {library.match_cutoff()} or above",
+        VIEW_ALL: "Every job",
+        VIEW_MATCHED: f"Scored {library.match_cutoff()} or above",
         VIEW_STRONG: f"Scored {STRONG_SCORE} or above",
-        VIEW_NEW: "Scored, not yet moved out of New",
-        VIEW_EASY: "LinkedIn Easy Apply postings",
-        VIEW_STARRED: "Jobs at companies you starred",
+        VIEW_NEW: "No status set yet",
+        VIEW_EASY: "LinkedIn one-click Easy Apply",
+        VIEW_STARRED: "From companies you starred",
     }
 
 
@@ -223,8 +223,7 @@ def render_jobs_filters(counts: dict) -> dict:
     with search_col:
         search = st.text_input(
             "Search",
-            help="Matches the job title, the company and the location. Not the description "
-                 "text — use the filters below to narrow by source, company or score.",
+            help="Searches title, company and location, not the description.",
             key="jobs_search",
             label_visibility="collapsed",
             placeholder="Search jobs, companies or locations…",
@@ -236,6 +235,7 @@ def render_jobs_filters(counts: dict) -> dict:
             key="jobs_sort",
             label_visibility="collapsed",
             format_func=lambda k: f"Sort: {SORT_OPTIONS[k][0]}",
+            help="Recently updated includes your status changes.",
         )
 
     view_col, filter_col = st.columns([5.2, 1.9], vertical_alignment="center")
@@ -247,7 +247,8 @@ def render_jobs_filters(counts: dict) -> dict:
             label_visibility="collapsed",
             format_func=lambda v: _view_label(v, counts),
             on_change=_coerce_view,
-            help=view_help().get(st.session_state.get("jobs_view") or VIEW_ALL),
+            help="Quick views:\n"
+            + "".join(f"\n- **{v}**: {text}" for v, text in view_help().items()),
         )
     view = st.session_state.get("jobs_view") or VIEW_ALL
 
@@ -257,6 +258,7 @@ def render_jobs_filters(counts: dict) -> dict:
             f"Filters · {len(chips)}" if chips else "Filters",
             icon=":material/tune:",
             width=430,
+            help="Narrow by score, status, verdict, source, location or company.",
         ):
             advanced = _render_advanced(options, view)
 
@@ -292,9 +294,9 @@ def _render_advanced(options: dict, view: str) -> dict:
         100,
         key=SK_RANGE,
         help=(
-            f"The {view} view already sets a floor of {floor}."
+            f"The {view} view sets a minimum of {floor}."
             if floor
-            else f"Matched jobs are the ones scored {library.match_cutoff()} or above."
+            else f"Matched means {library.match_cutoff()} or above."
         ),
     )
 
@@ -315,8 +317,7 @@ def _render_advanced(options: dict, view: str) -> dict:
             ["all"] + AI_STATUSES,
             key="jobs_ai_status",
             format_func=lambda x: {"all": "Any verdict", "fit": "Matched", "not_fit": "Not a match"}[x],
-            help=f"The verdict is written at score {library.match_cutoff()},"
-            " so it moves with the slider.",
+            help=f"Matched means scored {library.match_cutoff()} or above. Cutoff is in Settings.",
         )
 
     c3, c4 = st.columns(2)
@@ -324,13 +325,13 @@ def _render_advanced(options: dict, view: str) -> dict:
         website = st.selectbox(
             "Source", ["all"] + options.get("websites", []), key="jobs_website",
             format_func=lambda x: "Any source" if x == "all" else x,
-            help="Where the posting came from. Greenhouse, Lever and Ashby mean it came "
-                 "from that company's own job board — the original, not a copy.",
+            help="Greenhouse, Lever and Ashby are the company's own job board.",
         )
     with c4:
         location = st.selectbox(
             "Location", ["all"] + options.get("locations", []), key="jobs_location",
             format_func=lambda x: "Anywhere" if x == "all" else x,
+            help="As written in the posting.",
         )
 
     c5, c6 = st.columns(2)
@@ -340,14 +341,20 @@ def _render_advanced(options: dict, view: str) -> dict:
             format_func=lambda x: "Any company" if x == "all" else x,
         )
     with c6:
-        st.selectbox("Jobs per page", [10, 20, 50, 100], key="jobs_page_size")
+        st.selectbox(
+            "Jobs per page", [10, 20, 50, 100], key="jobs_page_size",
+        )
 
     easy_only = st.checkbox(
         "Easy Apply only", key="jobs_easy_only", disabled=view == VIEW_EASY,
-        help="The Easy Apply view already does this." if view == VIEW_EASY else None,
+        help="The Easy Apply view already does this." if view == VIEW_EASY
+        else "Only LinkedIn postings with one-click Easy Apply.",
     )
 
-    st.button("Reset filters", key="jobs_clear_filters", on_click=clear_filters, width="stretch")
+    st.button(
+        "Reset filters", key="jobs_clear_filters", on_click=clear_filters, width="stretch",
+        help="Clears these filters. Search, view and sort stay.",
+    )
 
     return {
         "score_range": score_range,

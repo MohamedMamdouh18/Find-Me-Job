@@ -57,6 +57,15 @@ SK_BULK_FEEDBACK = "bulk_action_feedback"
 SK_BULK_CONFIRM_DELETE = "bulk_confirm_delete"
 
 
+def _titled_keywords(html: str) -> str:
+    """Hover text on the row's keyword chips, which otherwise read as tags of unknown origin."""
+    return html.replace(
+        '<span class="kw-row">',
+        '<span class="kw-row" title="Skills from your CV that this posting mentions">',
+        1,
+    )
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def _starred_names() -> frozenset:
     return frozenset(get_starred_names())
@@ -181,7 +190,7 @@ def _render_row(job: dict, starred: frozenset, blocked: frozenset, select_mode: 
                 key=f"open_{key}",
                 type="tertiary",
                 width="stretch",
-                help="Open the full posting",
+                help="Show details",
             ):
                 st.session_state[SK_SELECTED_JOB_ID] = None if selected else job_id
                 st.rerun()
@@ -216,7 +225,7 @@ def _render_row(job: dict, starred: frozenset, blocked: frozenset, select_mode: 
                 # Second line: the CV skills this posting actually names, and on
                 # the right everything that is about the row rather than the job
                 # — badges and the link out — on one baseline instead of two.
-                f'<div class="job-evidence">{keyword_tags(job.get("keywords") or [])}'
+                f'<div class="job-evidence">{_titled_keywords(keyword_tags(job.get("keywords") or []))}'
                 f'<span class="job-row-marks">{marks}{link_html}</span></div>',
                 unsafe_allow_html=True,
             )
@@ -232,7 +241,7 @@ def _render_row(job: dict, starred: frozenset, blocked: frozenset, select_mode: 
                 format_func=lambda s: USER_STATUS_LABELS.get(s, s),
                 on_change=_set_status,
                 args=(job_id, status_key, user_status),
-                help="Set where this application stands",
+                help="Saves as soon as you pick.",
             )
 
 
@@ -259,23 +268,31 @@ def _render_bulk_bar(selected_jobs: list[dict], starred: frozenset, blocked: fro
                 USER_STATUSES,
                 key="bulk_status",
                 format_func=lambda s: USER_STATUS_LABELS.get(s, s),
+                help="Status for every selected job.",
             )
         with apply_col:
-            apply_status = st.button("Apply", key="bulk_apply", width="stretch")
+            apply_status = st.button(
+                "Apply", key="bulk_apply", width="stretch",
+                help="Set this status on the selected jobs. Does not submit applications.",
+            )
 
         b1, b2, b3, b4, b5 = st.columns(5)
-        star = b1.button("★ Star", key="bulk_star", width="stretch")
-        unstar = b2.button("☆ Unstar", key="bulk_unstar", width="stretch")
+        star = b1.button("★ Star", key="bulk_star", width="stretch",
+                         help="Star the companies of the selected jobs")
+        unstar = b2.button("☆ Unstar", key="bulk_unstar", width="stretch",
+                           help="Unstar the companies of the selected jobs")
         block = b3.button("🚫 Block", key="bulk_block", width="stretch",
-                          help="Skip these companies on future runs")
+                          help="Skip future postings from these companies. Listed jobs stay.")
         confirming = st.session_state.get(SK_BULK_CONFIRM_DELETE, False)
         delete = b4.button(
             "Confirm delete" if confirming else "🗑 Delete",
             key="bulk_delete",
             width="stretch",
             type="primary" if confirming else "secondary",
+            help="Click again to confirm. Deleted jobs won't be re-added.",
         )
-        clear = b5.button("Clear", key="bulk_clear", width="stretch")
+        clear = b5.button("Clear", key="bulk_clear", width="stretch",
+                          help="Unselect all jobs")
 
     if clear:
         _clear_checkboxes()
@@ -410,14 +427,12 @@ def _render_empty(filters: dict):
     if filters.get("search"):
         empty_state(
             "🔍", "No matching jobs",
-            f"Nothing matches “{escape(filters['search'])}”. Try a shorter term, or clear "
-            "the search to see the rest of this view.",
+            f"Nothing matches “{escape(filters['search'])}”. Try a shorter term.",
         )
     elif view == "New":
         empty_state(
             "✅", "You're all caught up",
-            "Every job in this view has been moved out of New. Switch to <b>All</b> to see "
-            "everything the pipeline has matched.",
+            "No jobs left in New. Switch to <b>All</b> to see everything.",
         )
     elif filters.get("min_score", 0) > 0 or filters.get("max_score", 100) < 100:
         empty_state(
@@ -428,8 +443,7 @@ def _render_empty(filters: dict):
     else:
         empty_state(
             "🗂", "No jobs match these filters",
-            "Drop a filter to widen the list. If nothing has been scraped yet, open "
-            "<b>Settings</b> and press <b>Run now</b>.",
+            "Drop a filter, or press <b>Run now</b> in <b>Settings</b>.",
         )
     reset_col, _ = st.columns([1.4, 5])
     with reset_col:
